@@ -775,7 +775,7 @@ public:
     template<class T>
     C4_ALWAYS_INLINE void save(id_type node, T const& val)
     {
-        if C4_LIKELY(node != NONE && node < m_cap && node >= 0)
+        if C4_LIKELY(node != NONE && node < m_first_unused && node >= 0)
         {
             write(this, node, val);
             return;
@@ -785,7 +785,7 @@ public:
     template<class T>
     C4_ALWAYS_INLINE void save(id_type node, T const& val, NodeType more_flags)
     {
-        if C4_LIKELY(node != NONE && node < m_cap && node >= 0)
+        if C4_LIKELY(node != NONE && node < m_first_unused && node >= 0)
         {
             write(this, node, val);
             _p(node)->m_type |= more_flags;
@@ -797,7 +797,7 @@ public:
     template<class T>
     C4_ALWAYS_INLINE void save_key(id_type node, T const& key)
     {
-        if C4_LIKELY(node != NONE && node < m_cap && node >= 0)
+        if C4_LIKELY(node != NONE && node < m_first_unused && node >= 0)
         {
             write_key(this, node, key);
             return;
@@ -807,7 +807,7 @@ public:
     template<class T>
     C4_ALWAYS_INLINE void save_key(id_type node, T const& key, NodeType more_flags)
     {
-        if C4_LIKELY(node != NONE && node < m_cap && node >= 0)
+        if C4_LIKELY(node != NONE && node < m_first_unused && node >= 0)
         {
             write_key(this, node, key);
             _p(node)->m_type |= more_flags;
@@ -874,7 +874,7 @@ public:
     template<class T>
     C4_ALWAYS_INLINE void load(id_type node, T * v, bool check_readable=true) const
     {
-        const bool can_read_val = (node != NONE && node < m_cap && node >= 0 && (_p(node)->m_type & (VAL|MAP|SEQ)));
+        const bool can_read_val = (node != NONE && node < m_first_unused && node >= 0 && (_p(node)->m_type & (VAL|MAP|SEQ)));
         RYML_ASSERT_VISIT_CB_(m_callbacks, can_read_val, this, node);
         if C4_LIKELY(!check_readable || can_read_val)
         {
@@ -892,7 +892,7 @@ public:
     C4_ALWAYS_INLINE void load(id_type node, Wrapper const& w, bool check_readable=true) const
     {
         RYML_CHECK_TYPE_IS_WRAPPER_LIKE_(Wrapper);
-        const bool can_read_val = (node != NONE && node < m_cap && node >= 0 && (_p(node)->m_type & (VAL|MAP|SEQ)));
+        const bool can_read_val = (node != NONE && node < m_first_unused && node >= 0 && (_p(node)->m_type & (VAL|MAP|SEQ)));
         RYML_ASSERT_VISIT_CB_(m_callbacks, can_read_val, this, node);
         if C4_LIKELY(!check_readable || can_read_val)
         {
@@ -915,7 +915,7 @@ public:
     template<class T>
     C4_ALWAYS_INLINE void load_key(id_type node, T * k, bool check_readable=true) const
     {
-        const bool can_read_key = (node != NONE && node < m_cap && node >= 0 && (_p(node)->m_type & KEY));
+        const bool can_read_key = (node != NONE && node < m_first_unused && node >= 0 && (_p(node)->m_type & KEY));
         RYML_ASSERT_VISIT_CB_(m_callbacks, can_read_key, this, node);
         if C4_LIKELY(!check_readable || can_read_key)
         {
@@ -933,7 +933,7 @@ public:
     C4_ALWAYS_INLINE void load_key(id_type node, Wrapper const& w, bool check_readable=true) const
     {
         RYML_CHECK_TYPE_IS_WRAPPER_LIKE_(Wrapper);
-        bool can_read_key = (node != NONE && node < m_cap && node >= 0 && (_p(node)->m_type & KEY));
+        bool can_read_key = (node != NONE && node < m_first_unused && node >= 0 && (_p(node)->m_type & KEY));
         RYML_ASSERT_VISIT_CB_(m_callbacks, can_read_key, this, node);
         if C4_LIKELY(!check_readable || can_read_key)
         {
@@ -1672,7 +1672,6 @@ public:
 
 private:
 
-    void _clear_range(id_type first, id_type num);
 
     id_type _claim();
     void    _claim_root();
@@ -1693,6 +1692,10 @@ public:
 
     id_type m_free_head;
     id_type m_free_tail;
+    /** nodes at and after this index were never claimed since the
+     * last reserve() or clear(): they are not initialized, and
+     * _claim() takes them in order once the free list is empty */
+    id_type m_first_unused;
 
     substr m_arena;
     size_t m_arena_pos;

@@ -620,11 +620,31 @@ TEST(Parser, estimate_tree_capacity)
     EXPECT_EQ(3, estimate_tree_capacity(R"({a: 0, b: 1})"));
     EXPECT_EQ(4, estimate_tree_capacity(R"({a: 0, b: 1, c: 2})"));
     EXPECT_EQ(5, estimate_tree_capacity(R"({a: 0, b: 1, c: 2, d: 3})"));
-    EXPECT_EQ(9, estimate_tree_capacity(R"(- {a: 0, b: 1, c: 2, d: 3}
+    // each block sequence entry also counts one node
+    EXPECT_EQ(13, estimate_tree_capacity(R"(- {a: 0, b: 1, c: 2, d: 3}
 - a
 - b
 - c
 )"));
+    // a sequence of block maps has two nodes on the first line of each
+    // entry: counting only the lines would give 4 for these 6 nodes
+    {
+        csubstr src = R"(- name: foo
+  x: 1
+- name: bar
+)";
+        EXPECT_EQ(6, estimate_tree_capacity(src));
+        Tree t = parse_in_arena(src);
+        EXPECT_EQ(6, t.size());
+        EXPECT_GE(estimate_tree_capacity(src), t.size());
+    }
+    // the word-at-a-time loop must agree with one byte at a time,
+    // including a "- " which straddles two words
+    EXPECT_EQ(2, estimate_tree_capacity(R"(abcdef- x)"));
+    EXPECT_EQ(2, estimate_tree_capacity(R"(abcdefg- x)"));
+    EXPECT_EQ(3, estimate_tree_capacity(R"(abcdefg-
+)"));
+    EXPECT_EQ(1, estimate_tree_capacity(R"(abcdefg-x)"));
 }
 
 TEST(Parser, alloc_arena)

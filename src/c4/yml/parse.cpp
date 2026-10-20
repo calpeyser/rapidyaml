@@ -143,18 +143,35 @@ C4_ALWAYS_INLINE void reset_handler_(Parser *parser, Tree *tree, id_type node_id
     parser->m_evt_handler->reset(tree, node_id);
     RYML_ASSERT_BASIC_(parser->m_evt_handler->m_tree == tree);
 }
+// when parsing into a new tree that was not reserved by the caller,
+// size the node array from the source so that it does not double
+// many times while parsing
+C4_ALWAYS_INLINE void reserve_from_source_(Tree *tree, id_type node_id, csubstr src)
+{
+    if(node_id == tree->root_id()
+       && tree->size() == 1
+       && tree->capacity() <= RYML_DEFAULT_TREE_CAPACITY
+       && tree->type(node_id) == NOTYPE)
+    {
+        const id_type cap = estimate_tree_capacity(src);
+        if(cap > tree->capacity())
+            tree->reserve(cap);
+    }
+}
 // assumes checks above were done prior to calling
 void parse_yaml_(Parser *parser, csubstr filename, substr yaml, Tree *tree, id_type node_id)
 {
-    reset_handler_(parser, tree, node_id);
     checksrc_(tree, yaml);
+    reserve_from_source_(tree, node_id, yaml); // before the handler takes pointers into the tree
+    reset_handler_(parser, tree, node_id);
     parser->parse_in_place_ev(filename, yaml);
 }
 // assumes checks above were done prior to calling
 void parse_json_(Parser *parser, csubstr filename, substr json, Tree *tree, id_type node_id)
 {
-    reset_handler_(parser, tree, node_id);
     checksrc_(tree, json);
+    reserve_from_source_(tree, node_id, json); // before the handler takes pointers into the tree
+    reset_handler_(parser, tree, node_id);
     parser->parse_json_in_place_ev(filename, json);
 }
 } // namespace
@@ -251,13 +268,50 @@ Tree parse_json_in_arena(                  csubstr json                         
 
 //-----------------------------------------------------------------------------
 
+namespace {
+// the high bit of each byte of w which equals c
+C4_ALWAYS_INLINE uint64_t bytes_eq_(uint64_t w, uint64_t c) noexcept
+{
+    const uint64_t lo7 = UINT64_C(0x7f7f7f7f7f7f7f7f);
+    const uint64_t x = w ^ (c * UINT64_C(0x0101010101010101));
+    return ~(((x & lo7) + lo7) | x | lo7);
+}
+// the number of bytes with the high bit set, in a mask from bytes_eq_()
+C4_ALWAYS_INLINE id_type count_bytes_(uint64_t m) noexcept
+{
+    return (id_type)(((m >> 7) * UINT64_C(0x0101010101010101)) >> 56);
+}
+} // namespace
+
 RYML_EXPORT id_type estimate_tree_capacity(csubstr src)
 {
+    // count one node per '\n', ',', '[' and '{', and one more per
+    // block sequence entry ("- " or "-\n"), which opens a node on a
+    // line that often holds another one, eg "- name: foo"
     id_type num_nodes = 1; // root
-    for(size_t i = 0; i < src.len; ++i)
+    size_t i = 0;
+    #if C4_BYTE_ORDER == C4EL_
+    // eight bytes at a time
+    uint64_t dash_carry = 0; // the last byte of the previous word was '-'
+    for( ; i + 8 <= src.len; i += 8)
+    {
+        uint64_t w;
+        memcpy(&w, src.str + i, 8);
+        const uint64_t nl = bytes_eq_(w, '\n');
+        const uint64_t sp = bytes_eq_(w, ' ') | nl;
+        const uint64_t dash = bytes_eq_(w, '-');
+        num_nodes += count_bytes_(nl | bytes_eq_(w, ',') | bytes_eq_(w, '[') | bytes_eq_(w, '{'));
+        num_nodes += count_bytes_(((dash << 8) | dash_carry) & sp);
+        dash_carry = (dash >> 56) & UINT64_C(0x80);
+    }
+    if(dash_carry && i < src.len && (src.str[i] == ' ' || src.str[i] == '\n'))
+        ++num_nodes;
+    #endif
+    for( ; i < src.len; ++i)
     {
         const char c = src.str[i];
         num_nodes += (c == '\n') || (c == ',') || (c == '[') || (c == '{');
+        num_nodes += (c == '-') && (i + 1 < src.len) && (src.str[i + 1] == ' ' || src.str[i + 1] == '\n');
     }
     return num_nodes;
 }
