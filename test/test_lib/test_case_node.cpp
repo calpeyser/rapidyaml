@@ -249,13 +249,17 @@ void TestCaseNode::recreate(yml::NodeRef *n) const
     NodeData *nd = n->get();
     nd->m_type = type|key_anchor.type|val_anchor.type;
     nd->m_key.scalar = key;
-    nd->m_key.tag = (key_tag);
-    nd->m_key.anchor = key_anchor.str;
     nd->m_val.scalar = val;
-    nd->m_val.tag = (val_tag);
-    nd->m_val.anchor = val_anchor.str;
     Tree &tree = *n->tree();
     id_type nid = n->id(); // don't use node from now on
+    if(!key_tag.empty() || !key_anchor.str.empty() || !val_tag.empty() || !val_anchor.str.empty())
+    {
+        NodeTagsAnchors &e = tree._extra_w(nid);
+        e.key_tag = key_tag;
+        e.key_anchor = key_anchor.str;
+        e.val_tag = val_tag;
+        e.val_anchor = val_anchor.str;
+    }
     for(TestCaseNode const& ch : children)
     {
         id_type id = tree.append_child(nid);

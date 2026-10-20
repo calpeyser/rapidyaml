@@ -181,8 +181,8 @@ public:
     C4_ALWAYS_INLINE csubstr val_ref()    const RYML_NOEXCEPT { this_assert_readable_(); return tree_->val_ref(id_); }    /**< Forward to @ref Tree::val_ref(). Node must be readable. */
     C4_ALWAYS_INLINE csubstr val_anchor() const RYML_NOEXCEPT { this_assert_readable_(); return tree_->val_anchor(id_); } /**< Forward to @ref Tree::val_anchor(). Node must be readable. */
 
-    C4_ALWAYS_INLINE NodeScalar const& keysc() const RYML_NOEXCEPT { this_assert_readable_(); return tree_->keysc(id_); } /**< Forward to @ref Tree::keysc(). Node must be readable. */
-    C4_ALWAYS_INLINE NodeScalar const& valsc() const RYML_NOEXCEPT { this_assert_readable_(); return tree_->valsc(id_); } /**< Forward to @ref Tree::valsc(). Node must be readable. */
+    C4_ALWAYS_INLINE NodeScalar keysc() const RYML_NOEXCEPT { this_assert_readable_(); return tree_->keysc(id_); } /**< Forward to @ref Tree::keysc(). Node must be readable. */
+    C4_ALWAYS_INLINE NodeScalar valsc() const RYML_NOEXCEPT { this_assert_readable_(); return tree_->valsc(id_); } /**< Forward to @ref Tree::valsc(). Node must be readable. */
 
     C4_ALWAYS_INLINE bool key_is_null() const RYML_NOEXCEPT { this_assert_readable_(); return tree_->key_is_null(id_); } /**< Forward to @ref Tree::key_is_null(). Node must be readable. */
     C4_ALWAYS_INLINE bool val_is_null() const RYML_NOEXCEPT { this_assert_readable_(); return tree_->val_is_null(id_); } /**< Forward to @ref Tree::val_is_null(). Node must be readable. */

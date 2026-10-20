@@ -383,11 +383,23 @@ public:
         RYML_ASSERT_VISIT_CB_(m_stack.m_callbacks, !m_tree->is_container(m_curr->node_id), m_tree, m_curr->node_id);
         RYML_ASSERT_VISIT_CB_(m_stack.m_callbacks, !m_tree->has_key(m_curr->node_id), m_tree, m_curr->node_id);
         const NodeData tmp = _val2key_(*m_curr->tr_data);
+        const NodeTagsAnchors tmp_extra = m_tree->_extra_or_empty(m_curr->node_id);
         ryml_disable_(VALMASK_|VAL_STYLE|VALNIL);
         m_curr->tr_data->m_val = {};
+        if(NodeTagsAnchors *e = m_tree->_extra(m_curr->node_id))
+        {
+            e->val_tag.clear();
+            e->val_anchor.clear();
+        }
         begin_map_val_flow();
         m_curr->tr_data->m_type = tmp.m_type;
         m_curr->tr_data->m_key = tmp.m_key;
+        if(!tmp_extra.val_tag.empty() || !tmp_extra.val_anchor.empty())
+        {
+            NodeTagsAnchors &e = m_tree->_extra_w(m_curr->node_id);
+            e.key_tag = tmp_extra.val_tag;
+            e.key_anchor = tmp_extra.val_anchor;
+        }
     }
 
     /** like its flow counterpart, but this function can only be
@@ -515,7 +527,7 @@ public:
         RYML_ASSERT_BASIC_CB_(m_stack.m_callbacks, !ryml_hasany_(KEYREF));
         RYML_ASSERT_PARSE_CB_(m_tree->callbacks(), !anchor.begins_with('&'), m_curr->pos);
         ryml_enable_(KEYANCH);
-        m_curr->tr_data->m_key.anchor = anchor;
+        m_tree->_extra_w(m_curr->node_id).key_anchor = anchor;
     }
     void set_val_anchor(csubstr anchor)
     {
@@ -524,7 +536,7 @@ public:
         RYML_ASSERT_BASIC_CB_(m_stack.m_callbacks, !ryml_hasany_(VALREF));
         RYML_ASSERT_PARSE_CB_(m_tree->callbacks(), !anchor.begins_with('&'), m_curr->pos);
         ryml_enable_(VALANCH);
-        m_curr->tr_data->m_val.anchor = anchor;
+        m_tree->_extra_w(m_curr->node_id).val_anchor = anchor;
     }
 
     void set_key_ref(csubstr ref)
@@ -533,7 +545,7 @@ public:
         RYML_ASSERT_PARSE_CB_(m_stack.m_callbacks, ref.begins_with('*'), m_curr->pos);
         RYML_ASSERT_PARSE_CB_(m_stack.m_callbacks, !ryml_hasany_(KEYANCH), m_curr->pos);
         ryml_enable_(KEY|KEYREF);
-        m_curr->tr_data->m_key.anchor = ref.sub(1);
+        m_tree->_extra_w(m_curr->node_id).key_anchor = ref.sub(1);
         m_curr->tr_data->m_key.scalar = ref;
     }
     void set_val_ref(csubstr ref)
@@ -542,7 +554,7 @@ public:
         RYML_ASSERT_PARSE_CB_(m_stack.m_callbacks, ref.begins_with('*'), m_curr->pos);
         RYML_ASSERT_PARSE_CB_(m_stack.m_callbacks, !ryml_hasany_(VALANCH), m_curr->pos);
         ryml_enable_(VAL|VALREF);
-        m_curr->tr_data->m_val.anchor = ref.sub(1);
+        m_tree->_extra_w(m_curr->node_id).val_anchor = ref.sub(1);
         m_curr->tr_data->m_val.scalar = ref;
     }
 
@@ -557,13 +569,13 @@ public:
     {
         _c4dbgpf("node[{}]: set key tag: [{}]~~~{}~~~", m_curr->node_id, tag.len, tag);
         ryml_enable_(KEYTAG);
-        m_curr->tr_data->m_key.tag = tag;
+        m_tree->_extra_w(m_curr->node_id).key_tag = tag;
     }
     void set_val_tag(csubstr tag)
     {
         _c4dbgpf("node[{}]: set val tag: [{}]~~~{}~~~", m_curr->node_id, tag.len, tag);
         ryml_enable_(VALTAG);
-        m_curr->tr_data->m_val.tag = tag;
+        m_tree->_extra_w(m_curr->node_id).val_tag = tag;
     }
 
     /** @} */

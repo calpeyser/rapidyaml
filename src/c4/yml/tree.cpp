@@ -127,6 +127,9 @@ Tree::Tree(id_type node_capacity, size_t arena_capacity, Callbacks const& cb)
     , m_size(0)
     , m_free_head(NONE)
     , m_free_tail(NONE)
+    , m_extra(nullptr)
+    , m_extra_size(0)
+    , m_extra_cap(0)
     , m_arena()
     , m_arena_pos(0)
     , m_callbacks(cb)
@@ -190,6 +193,8 @@ void Tree::_free()
         RYML_ASSERT_VISIT_CB_(m_callbacks, m_arena.len > 0, this, NONE);
         RYML_CB_FREE_(m_callbacks, m_arena.str, char, m_arena.len);
     }
+    if(m_extra)
+        RYML_CB_FREE_(m_callbacks, m_extra, NodeTagsAnchors, (size_t)m_extra_cap);
     _clear();
 }
 
@@ -206,6 +211,9 @@ void Tree::_clear()
     m_size = 0;
     m_free_head = 0;
     m_free_tail = 0;
+    m_extra = nullptr;
+    m_extra_size = 0;
+    m_extra_cap = 0;
     m_arena = {};
     m_arena_pos = 0;
     m_tag_directives.clear();
@@ -225,6 +233,13 @@ void Tree::_copy(Tree const& that)
     m_size = that.m_size;
     m_free_head = that.m_free_head;
     m_free_tail = that.m_free_tail;
+    if(that.m_extra_size)
+    {
+        m_extra = RYML_CB_ALLOC_HINT_(m_callbacks, NodeTagsAnchors, (size_t)that.m_extra_size, that.m_extra);
+        memcpy(m_extra, that.m_extra, (size_t)that.m_extra_size * sizeof(NodeTagsAnchors));
+    }
+    m_extra_size = that.m_extra_size;
+    m_extra_cap = that.m_extra_size;
     m_arena_pos = that.m_arena_pos;
     m_arena = that.m_arena;
     m_tag_directives = that.m_tag_directives;
@@ -249,6 +264,9 @@ void Tree::_move(Tree & that) noexcept
     m_size = that.m_size;
     m_free_head = that.m_free_head;
     m_free_tail = that.m_free_tail;
+    m_extra = that.m_extra;
+    m_extra_size = that.m_extra_size;
+    m_extra_cap = that.m_extra_cap;
     m_arena = that.m_arena;
     m_arena_pos = that.m_arena_pos;
     m_tag_directives = that.m_tag_directives;
@@ -267,16 +285,19 @@ void Tree::_relocate(substr next_arena)
     {
         if(in_arena(n->m_key.scalar))
             n->m_key.scalar = _relocated(n->m_key.scalar, next_arena);
-        if(in_arena(n->m_key.tag))
-            n->m_key.tag = _relocated(n->m_key.tag, next_arena);
-        if(in_arena(n->m_key.anchor))
-            n->m_key.anchor = _relocated(n->m_key.anchor, next_arena);
         if(in_arena(n->m_val.scalar))
             n->m_val.scalar = _relocated(n->m_val.scalar, next_arena);
-        if(in_arena(n->m_val.tag))
-            n->m_val.tag = _relocated(n->m_val.tag, next_arena);
-        if(in_arena(n->m_val.anchor))
-            n->m_val.anchor = _relocated(n->m_val.anchor, next_arena);
+    }
+    for(NodeTagsAnchors *C4_RESTRICT e = m_extra, *ee = m_extra + m_extra_size; e != ee; ++e)
+    {
+        if(in_arena(e->key_tag))
+            e->key_tag = _relocated(e->key_tag, next_arena);
+        if(in_arena(e->key_anchor))
+            e->key_anchor = _relocated(e->key_anchor, next_arena);
+        if(in_arena(e->val_tag))
+            e->val_tag = _relocated(e->val_tag, next_arena);
+        if(in_arena(e->val_anchor))
+            e->val_anchor = _relocated(e->val_anchor, next_arena);
     }
     for(TagDirective &C4_RESTRICT td : m_tag_directives)
     {
@@ -343,7 +364,26 @@ void Tree::clear()
         m_free_head = NONE;
         m_free_tail = NONE;
     }
+    m_extra_size = 0;
     m_tag_directives.clear();
+}
+
+id_type Tree::_claim_extra()
+{
+    if(m_extra_size == m_extra_cap)
+    {
+        id_type cap = m_extra_cap ? 2 * m_extra_cap : 16;
+        NodeTagsAnchors *buf = RYML_CB_ALLOC_HINT_(m_callbacks, NodeTagsAnchors, (size_t)cap, m_extra);
+        if(m_extra)
+        {
+            memcpy(buf, m_extra, (size_t)m_extra_size * sizeof(NodeTagsAnchors));
+            RYML_CB_FREE_(m_callbacks, m_extra, NodeTagsAnchors, (size_t)m_extra_cap);
+        }
+        m_extra = buf;
+        m_extra_cap = cap;
+    }
+    m_extra[m_extra_size] = {};
+    return m_extra_size++;
 }
 
 void Tree::_claim_root()
@@ -807,6 +847,7 @@ void Tree::_swap_props(id_type n_, id_type m_)
     NodeData &C4_RESTRICT n = *_p(n_);
     NodeData &C4_RESTRICT m = *_p(m_);
     std::swap(n.m_type, m.m_type);
+    std::swap(n.m_extra, m.m_extra);
     std::swap(n.m_key, m.m_key);
     std::swap(n.m_val, m.m_val);
 }
@@ -1325,6 +1366,7 @@ void Tree::to_val(id_type node, csubstr val, type_bits more_flags)
     RYML_ASSERT_VISIT_CB_(m_callbacks, !is_seq(node) && !is_map(node), this, node);
     NodeData* C4_RESTRICT nd = _p(node);
     nd->m_type = VAL|more_flags;
+    nd->m_extra = NONE;
     nd->m_key.clear();
     nd->m_val = val;
 }
@@ -1336,6 +1378,7 @@ void Tree::to_keyval(id_type node, csubstr key, csubstr val, type_bits more_flag
     RYML_ASSERT_VISIT_CB_(m_callbacks, !is_seq(node) && !is_map(node), this, node);
     NodeData* C4_RESTRICT nd = _p(node);
     nd->m_type = KEYVAL|more_flags;
+    nd->m_extra = NONE;
     nd->m_key = key;
     nd->m_val = val;
 }
@@ -1345,6 +1388,7 @@ void Tree::to_map(id_type node, type_bits more_flags)
     RYML_ASSERT_VISIT_CB_(m_callbacks,  ! has_children(node), this, node);
     NodeData* C4_RESTRICT nd = _p(node);
     nd->m_type = MAP|more_flags;
+    nd->m_extra = NONE;
     nd->m_key.clear();
     nd->m_val.clear();
 }
@@ -1355,6 +1399,7 @@ void Tree::to_map(id_type node, csubstr key, type_bits more_flags)
     RYML_ASSERT_VISIT_CB_(m_callbacks, parent(node) == NONE || parent_is_map(node), this, node);
     NodeData* C4_RESTRICT nd = _p(node);
     nd->m_type = KEY|MAP|more_flags;
+    nd->m_extra = NONE;
     nd->m_key = key;
     nd->m_val.clear();
 }
@@ -1365,6 +1410,7 @@ void Tree::to_seq(id_type node, type_bits more_flags)
     RYML_ASSERT_VISIT_CB_(m_callbacks, parent(node) == NONE || parent_is_seq(node), this, node);
     NodeData* C4_RESTRICT nd = _p(node);
     nd->m_type = SEQ|more_flags;
+    nd->m_extra = NONE;
     nd->m_key.clear();
     nd->m_val.clear();
 }
@@ -1375,6 +1421,7 @@ void Tree::to_seq(id_type node, csubstr key, type_bits more_flags)
     RYML_ASSERT_VISIT_CB_(m_callbacks, parent(node) == NONE || parent_is_map(node), this, node);
     NodeData* C4_RESTRICT nd = _p(node);
     nd->m_type = KEY|SEQ|more_flags;
+    nd->m_extra = NONE;
     nd->m_key = key;
     nd->m_val.clear();
 }
@@ -1384,6 +1431,7 @@ void Tree::to_doc(id_type node, type_bits more_flags)
     RYML_ASSERT_VISIT_CB_(m_callbacks,  ! has_children(node), this, node);
     NodeData* C4_RESTRICT nd = _p(node);
     nd->m_type = DOC|more_flags;
+    nd->m_extra = NONE;
     nd->m_key.clear();
     nd->m_val.clear();
 }
@@ -1393,6 +1441,7 @@ void Tree::to_stream(id_type node, type_bits more_flags)
     RYML_ASSERT_VISIT_CB_(m_callbacks,  ! has_children(node), this, node);
     NodeData* C4_RESTRICT nd = _p(node);
     nd->m_type = STREAM|more_flags;
+    nd->m_extra = NONE;
     nd->m_key.clear();
     nd->m_val.clear();
 }
@@ -1509,10 +1558,10 @@ size_t _resolve_tags(Tree *t, id_type node, id_type doc_id, TagCache &cache, boo
 {
     NodeData *C4_RESTRICT d = t->_p(node);
     size_t extra_size = 0;
-    if((d->m_type & KEYTAG) && (all || is_custom_tag(d->m_key.tag)))
-        extra_size += _transform_tag(t, node, doc_id, cache, d->m_key.tag, &d->m_key.tag);
-    if((d->m_type & VALTAG) && (all || is_custom_tag(d->m_val.tag)))
-        extra_size += _transform_tag(t, node, doc_id, cache, d->m_val.tag, &d->m_val.tag);
+    if((d->m_type & KEYTAG) && (all || is_custom_tag(t->_extra(node)->key_tag)))
+        extra_size += _transform_tag(t, node, doc_id, cache, t->_extra(node)->key_tag, &t->_extra(node)->key_tag);
+    if((d->m_type & VALTAG) && (all || is_custom_tag(t->_extra(node)->val_tag)))
+        extra_size += _transform_tag(t, node, doc_id, cache, t->_extra(node)->val_tag, &t->_extra(node)->val_tag);
     for(id_type child = t->first_child(node); child != NONE; child = t->next_sibling(child))
         extra_size += _resolve_tags(t, child, doc_id, cache);
     return extra_size;
@@ -1532,9 +1581,9 @@ void _normalize_tags(Tree *t, id_type node)
 {
     NodeData *C4_RESTRICT d = t->_p(node);
     if(d->m_type & KEYTAG)
-        d->m_key.tag = normalize_tag(d->m_key.tag);
+        t->_extra(node)->key_tag = normalize_tag(t->_extra(node)->key_tag);
     if(d->m_type & VALTAG)
-        d->m_val.tag = normalize_tag(d->m_val.tag);
+        t->_extra(node)->val_tag = normalize_tag(t->_extra(node)->val_tag);
     for(id_type child = t->first_child(node); child != NONE; child = t->next_sibling(child))
         _normalize_tags(t, child);
 }
@@ -1542,9 +1591,9 @@ void _normalize_tags_long(Tree *t, id_type node)
 {
     NodeData *C4_RESTRICT d = t->_p(node);
     if(d->m_type & KEYTAG)
-        d->m_key.tag = normalize_tag_long(d->m_key.tag);
+        t->_extra(node)->key_tag = normalize_tag_long(t->_extra(node)->key_tag);
     if(d->m_type & VALTAG)
-        d->m_val.tag = normalize_tag_long(d->m_val.tag);
+        t->_extra(node)->val_tag = normalize_tag_long(t->_extra(node)->val_tag);
     for(id_type child = t->first_child(node); child != NONE; child = t->next_sibling(child))
         _normalize_tags_long(t, child);
 }

@@ -170,20 +170,26 @@ void test_arena_not_shared(Tree const& a, Tree const& b)
     for(NodeData const* n = a.m_buf, *e = a.m_buf + a.m_cap; n != e; ++n)
     {
         EXPECT_FALSE(b.in_arena(n->m_key.scalar)) << n - a.m_buf;
-        EXPECT_FALSE(b.in_arena(n->m_key.tag   )) << n - a.m_buf;
-        EXPECT_FALSE(b.in_arena(n->m_key.anchor)) << n - a.m_buf;
         EXPECT_FALSE(b.in_arena(n->m_val.scalar)) << n - a.m_buf;
-        EXPECT_FALSE(b.in_arena(n->m_val.tag   )) << n - a.m_buf;
-        EXPECT_FALSE(b.in_arena(n->m_val.anchor)) << n - a.m_buf;
+    }
+    for(NodeTagsAnchors const* n = a.m_extra, *e = a.m_extra + a.m_extra_size; n != e; ++n)
+    {
+        EXPECT_FALSE(b.in_arena(n->key_tag   )) << n - a.m_extra;
+        EXPECT_FALSE(b.in_arena(n->key_anchor)) << n - a.m_extra;
+        EXPECT_FALSE(b.in_arena(n->val_tag   )) << n - a.m_extra;
+        EXPECT_FALSE(b.in_arena(n->val_anchor)) << n - a.m_extra;
     }
     for(NodeData const* n = b.m_buf, *e = b.m_buf + b.m_cap; n != e; ++n)
     {
         EXPECT_FALSE(a.in_arena(n->m_key.scalar)) << n - b.m_buf;
-        EXPECT_FALSE(a.in_arena(n->m_key.tag   )) << n - b.m_buf;
-        EXPECT_FALSE(a.in_arena(n->m_key.anchor)) << n - b.m_buf;
         EXPECT_FALSE(a.in_arena(n->m_val.scalar)) << n - b.m_buf;
-        EXPECT_FALSE(a.in_arena(n->m_val.tag   )) << n - b.m_buf;
-        EXPECT_FALSE(a.in_arena(n->m_val.anchor)) << n - b.m_buf;
+    }
+    for(NodeTagsAnchors const* n = b.m_extra, *e = b.m_extra + b.m_extra_size; n != e; ++n)
+    {
+        EXPECT_FALSE(a.in_arena(n->key_tag   )) << n - b.m_extra;
+        EXPECT_FALSE(a.in_arena(n->key_anchor)) << n - b.m_extra;
+        EXPECT_FALSE(a.in_arena(n->val_tag   )) << n - b.m_extra;
+        EXPECT_FALSE(a.in_arena(n->val_anchor)) << n - b.m_extra;
     }
     for(TagDirective const& td : a.m_tag_directives)
     {

@@ -286,13 +286,47 @@ public:
 //-----------------------------------------------------------------------------
 //-----------------------------------------------------------------------------
 
+/** the scalar of a node key or val, as stored in @ref NodeData: only
+ * the string. Its tag and anchor are in @ref NodeTagsAnchors, because
+ * few nodes have them. */
+struct NodeScalarData
+{
+    csubstr scalar;
+
+    NodeScalarData() noexcept : scalar() {}
+    NodeScalarData(csubstr s) noexcept : scalar(s) {} // NOLINT
+    template<size_t N>
+    NodeScalarData(const char (&s)[N]) noexcept : scalar(s) {} // NOLINT
+
+    bool empty() const noexcept { return scalar.empty(); }
+    void clear() noexcept { scalar.clear(); }
+};
+static_assert(std::is_trivially_copyable<NodeScalarData>::value, "must be trivially copyable");
+
+
+/** the tags and anchors (or reference names) of one node. A tree
+ * keeps these in a side table, and a node points at its entry with
+ * @ref NodeData::m_extra only when it has one. */
+struct NodeTagsAnchors
+{
+    csubstr key_tag;
+    csubstr key_anchor;
+    csubstr val_tag;
+    csubstr val_anchor;
+};
+static_assert(std::is_trivially_copyable<NodeTagsAnchors>::value, "must be trivially copyable");
+
+
 /** contains the data for each YAML node. */
 struct NodeData
 {
     NodeType   m_type;
+    /** index of this node's tags and anchors in the tree's side table
+     * (@ref Tree::m_extra), or NONE */
+    id_type    m_extra;
 
-    NodeScalar m_key;
-    NodeScalar m_val;
+    NodeScalarData m_key;
+    NodeScalarData m_val;
 
     id_type    m_parent;
     id_type    m_first_child;
@@ -456,16 +490,20 @@ public:
     NodeType type(id_type node) const { return _p(node)->m_type; }
 
     csubstr    const& key       (id_type node) const { RYML_ASSERT_VISIT_CB_(m_callbacks, has_key(node), this, node); return _p(node)->m_key.scalar; }
-    csubstr    const& key_tag   (id_type node) const { RYML_ASSERT_VISIT_CB_(m_callbacks, has_key_tag(node), this, node); return _p(node)->m_key.tag; }
-    csubstr    const& key_ref   (id_type node) const { RYML_ASSERT_VISIT_CB_(m_callbacks, is_key_ref(node), this, node); return _p(node)->m_key.anchor; }
-    csubstr    const& key_anchor(id_type node) const { RYML_ASSERT_VISIT_CB_(m_callbacks, has_key_anchor(node), this, node); return _p(node)->m_key.anchor; }
-    NodeScalar const& keysc     (id_type node) const { RYML_ASSERT_VISIT_CB_(m_callbacks, has_key(node), this, node); return _p(node)->m_key; }
+    csubstr    const& key_tag   (id_type node) const { RYML_ASSERT_VISIT_CB_(m_callbacks, has_key_tag(node), this, node); return _extra_or_empty(node).key_tag; }
+    csubstr    const& key_ref   (id_type node) const { RYML_ASSERT_VISIT_CB_(m_callbacks, is_key_ref(node), this, node); return _extra_or_empty(node).key_anchor; }
+    csubstr    const& key_anchor(id_type node) const { RYML_ASSERT_VISIT_CB_(m_callbacks, has_key_anchor(node), this, node); return _extra_or_empty(node).key_anchor; }
+    /** the key scalar with its tag and anchor; returned by value,
+     * because the tag and anchor are not stored in the node */
+    NodeScalar        keysc     (id_type node) const { RYML_ASSERT_VISIT_CB_(m_callbacks, has_key(node), this, node); NodeTagsAnchors const& e = _extra_or_empty(node); NodeScalar s(e.key_tag, _p(node)->m_key.scalar); s.anchor = e.key_anchor; return s; }
 
     csubstr    const& val       (id_type node) const { RYML_ASSERT_VISIT_CB_(m_callbacks, has_val(node), this, node); return _p(node)->m_val.scalar; }
-    csubstr    const& val_tag   (id_type node) const { RYML_ASSERT_VISIT_CB_(m_callbacks, has_val_tag(node), this, node); return _p(node)->m_val.tag; }
-    csubstr    const& val_ref   (id_type node) const { RYML_ASSERT_VISIT_CB_(m_callbacks, is_val_ref(node), this, node); return _p(node)->m_val.anchor; }
-    csubstr    const& val_anchor(id_type node) const { RYML_ASSERT_VISIT_CB_(m_callbacks, has_val_anchor(node), this, node); return _p(node)->m_val.anchor; }
-    NodeScalar const& valsc     (id_type node) const { RYML_ASSERT_VISIT_CB_(m_callbacks, has_val(node), this, node); return _p(node)->m_val; }
+    csubstr    const& val_tag   (id_type node) const { RYML_ASSERT_VISIT_CB_(m_callbacks, has_val_tag(node), this, node); return _extra_or_empty(node).val_tag; }
+    csubstr    const& val_ref   (id_type node) const { RYML_ASSERT_VISIT_CB_(m_callbacks, is_val_ref(node), this, node); return _extra_or_empty(node).val_anchor; }
+    csubstr    const& val_anchor(id_type node) const { RYML_ASSERT_VISIT_CB_(m_callbacks, has_val_anchor(node), this, node); return _extra_or_empty(node).val_anchor; }
+    /** the val scalar with its tag and anchor; returned by value,
+     * because the tag and anchor are not stored in the node */
+    NodeScalar        valsc     (id_type node) const { RYML_ASSERT_VISIT_CB_(m_callbacks, has_val(node), this, node); NodeTagsAnchors const& e = _extra_or_empty(node); NodeScalar s(e.val_tag, _p(node)->m_val.scalar); s.anchor = e.val_anchor; return s; }
 
     /** @} */
 
@@ -500,7 +538,7 @@ public:
     C4_ALWAYS_INLINE bool parent_is_map(id_type node) const { RYML_ASSERT_VISIT_CB_(m_callbacks, has_parent(node), this, node); return is_map(_p(node)->m_parent); }
 
     /** true when the node has an anchor named a */
-    C4_ALWAYS_INLINE bool has_anchor(id_type node, csubstr a) const { return _p(node)->m_key.anchor == a || _p(node)->m_val.anchor == a; }
+    C4_ALWAYS_INLINE bool has_anchor(id_type node, csubstr a) const { NodeTagsAnchors const& e = _extra_or_empty(node); return e.key_anchor == a || e.val_anchor == a; }
 
     /** true if the node key is empty, or its scalar verifies @ref scalar_is_null().
      * @warning the node must verify @ref Tree::has_key() (asserted) (ie must be a member of a map)
@@ -743,19 +781,19 @@ public:
         _p(node)->m_type |= MAP|more_flags;
     }
 
-    void set_key_tag(id_type node, csubstr tag) { RYML_ASSERT_VISIT_CB_(m_callbacks, has_key(node), this, node); _p(node)->m_key.tag = tag; _add_flags(node, KEYTAG); }
-    void set_val_tag(id_type node, csubstr tag) { RYML_ASSERT_VISIT_CB_(m_callbacks, has_val(node) || is_container(node), this, node); _p(node)->m_val.tag = tag; _add_flags(node, VALTAG); }
+    void set_key_tag(id_type node, csubstr tag) { RYML_ASSERT_VISIT_CB_(m_callbacks, has_key(node), this, node); _extra_w(node).key_tag = tag; _add_flags(node, KEYTAG); }
+    void set_val_tag(id_type node, csubstr tag) { RYML_ASSERT_VISIT_CB_(m_callbacks, has_val(node) || is_container(node), this, node); _extra_w(node).val_tag = tag; _add_flags(node, VALTAG); }
 
-    void set_key_anchor(id_type node, csubstr anchor) { RYML_ASSERT_VISIT_CB_(m_callbacks,  ! is_key_ref(node), this, node); _p(node)->m_key.anchor = anchor.triml('&'); _add_flags(node, KEYANCH); }
-    void set_val_anchor(id_type node, csubstr anchor) { RYML_ASSERT_VISIT_CB_(m_callbacks,  ! is_val_ref(node), this, node); _p(node)->m_val.anchor = anchor.triml('&'); _add_flags(node, VALANCH); }
-    void set_key_ref   (id_type node, csubstr ref   ) { RYML_ASSERT_VISIT_CB_(m_callbacks,  ! has_key_anchor(node), this, node); NodeData* C4_RESTRICT n = _p(node); n->m_key.set_ref_maybe_replacing_scalar(ref, n->m_type.has_key()); _add_flags(node, KEY|KEYREF); }
-    void set_val_ref   (id_type node, csubstr ref   ) { RYML_ASSERT_VISIT_CB_(m_callbacks,  ! has_val_anchor(node), this, node); NodeData* C4_RESTRICT n = _p(node); n->m_val.set_ref_maybe_replacing_scalar(ref, n->m_type.has_val()); _add_flags(node, VAL|VALREF); }
+    void set_key_anchor(id_type node, csubstr anchor) { RYML_ASSERT_VISIT_CB_(m_callbacks,  ! is_key_ref(node), this, node); _extra_w(node).key_anchor = anchor.triml('&'); _add_flags(node, KEYANCH); }
+    void set_val_anchor(id_type node, csubstr anchor) { RYML_ASSERT_VISIT_CB_(m_callbacks,  ! is_val_ref(node), this, node); _extra_w(node).val_anchor = anchor.triml('&'); _add_flags(node, VALANCH); }
+    void set_key_ref   (id_type node, csubstr ref   ) { RYML_ASSERT_VISIT_CB_(m_callbacks,  ! has_key_anchor(node), this, node); _set_ref_(ref, &_extra_w(node).key_anchor, &_p(node)->m_key.scalar, has_key(node)); _add_flags(node, KEY|KEYREF); }
+    void set_val_ref   (id_type node, csubstr ref   ) { RYML_ASSERT_VISIT_CB_(m_callbacks,  ! has_val_anchor(node), this, node); _set_ref_(ref, &_extra_w(node).val_anchor, &_p(node)->m_val.scalar, has_val(node)); _add_flags(node, VAL|VALREF); }
 
-    void rem_key_anchor(id_type node) { _p(node)->m_key.anchor.clear(); _rem_flags(node, KEYANCH); }
-    void rem_val_anchor(id_type node) { _p(node)->m_val.anchor.clear(); _rem_flags(node, VALANCH); }
-    void rem_key_ref   (id_type node) { _p(node)->m_key.anchor.clear(); _rem_flags(node, KEYREF); }
-    void rem_val_ref   (id_type node) { _p(node)->m_val.anchor.clear(); _rem_flags(node, VALREF); }
-    void rem_anchor_ref(id_type node) { _p(node)->m_key.anchor.clear(); _p(node)->m_val.anchor.clear(); _rem_flags(node, KEYANCH|VALANCH|KEYREF|VALREF); }
+    void rem_key_anchor(id_type node) { if(NodeTagsAnchors *e = _extra(node)) e->key_anchor.clear(); _rem_flags(node, KEYANCH); }
+    void rem_val_anchor(id_type node) { if(NodeTagsAnchors *e = _extra(node)) e->val_anchor.clear(); _rem_flags(node, VALANCH); }
+    void rem_key_ref   (id_type node) { if(NodeTagsAnchors *e = _extra(node)) e->key_anchor.clear(); _rem_flags(node, KEYREF); }
+    void rem_val_ref   (id_type node) { if(NodeTagsAnchors *e = _extra(node)) e->val_anchor.clear(); _rem_flags(node, VALREF); }
+    void rem_anchor_ref(id_type node) { if(NodeTagsAnchors *e = _extra(node)) { e->key_anchor.clear(); e->val_anchor.clear(); } _rem_flags(node, KEYANCH|VALANCH|KEYREF|VALREF); }
 
     /** @} */
 
@@ -1613,6 +1651,7 @@ public:
         dst.m_type = src.m_type;
         dst.m_key  = src.m_key;
         dst.m_val  = src.m_val;
+        _copy_extra(dst_, that_tree, src_);
     }
 
     void _copy_props(id_type dst_, Tree const* that_tree, id_type src_, type_bits src_mask)
@@ -1622,6 +1661,7 @@ public:
         dst.m_type = (src.m_type & src_mask) | (dst.m_type & ~src_mask);
         dst.m_key  = src.m_key;
         dst.m_val  = src.m_val;
+        _copy_extra(dst_, that_tree, src_);
     }
 
     void _copy_props_wo_key(id_type dst_, Tree const* that_tree, id_type src_)
@@ -1630,6 +1670,7 @@ public:
         auto const& C4_RESTRICT src = *that_tree->_p(src_);
         dst.m_type = (src.m_type & ~KEYMASK_) | (dst.m_type & KEYMASK_);
         dst.m_val  = src.m_val;
+        _copy_extra_val(dst_, that_tree, src_);
     }
 
     void _copy_props_wo_key(id_type dst_, Tree const* that_tree, id_type src_, type_bits src_mask)
@@ -1638,6 +1679,7 @@ public:
         auto const& C4_RESTRICT src = *that_tree->_p(src_);
         dst.m_type = (src.m_type & ((~KEYMASK_)|src_mask)) | (dst.m_type & (KEYMASK_|~src_mask));
         dst.m_val  = src.m_val;
+        _copy_extra_val(dst_, that_tree, src_);
     }
 
     void _clear_type(id_type node)
@@ -1649,6 +1691,7 @@ public:
     {
         auto *C4_RESTRICT n = _p(node);
         n->m_type = NOTYPE;
+        n->m_extra = NONE;
         n->m_key.clear();
         n->m_val.clear();
         n->m_parent = NONE;
@@ -1659,13 +1702,65 @@ public:
     void _clear_key(id_type node)
     {
         _p(node)->m_key.clear();
+        if(NodeTagsAnchors *e = _extra(node)) { e->key_tag.clear(); e->key_anchor.clear(); }
         _rem_flags(node, KEY);
     }
 
     void _clear_val(id_type node)
     {
         _p(node)->m_val.clear();
+        if(NodeTagsAnchors *e = _extra(node)) { e->val_tag.clear(); e->val_anchor.clear(); }
         _rem_flags(node, VAL);
+    }
+
+    /** the node's tags and anchors, or nullptr when it has none */
+    NodeTagsAnchors       * _extra(id_type node)       { id_type e = _p(node)->m_extra; return e != NONE ? m_extra + e : nullptr; }
+    NodeTagsAnchors const * _extra(id_type node) const { id_type e = _p(node)->m_extra; return e != NONE ? m_extra + e : nullptr; }
+    /** the node's tags and anchors, or all empty when it has none */
+    NodeTagsAnchors const& _extra_or_empty(id_type node) const
+    {
+        static const NodeTagsAnchors s_empty = {};
+        id_type e = _p(node)->m_extra;
+        return e != NONE ? m_extra[e] : s_empty;
+    }
+    /** the node's tags and anchors, adding an empty entry when it has none */
+    NodeTagsAnchors& _extra_w(id_type node)
+    {
+        id_type e = _p(node)->m_extra;
+        if(e == NONE)
+            e = _p(node)->m_extra = _claim_extra();
+        return m_extra[e];
+    }
+    id_type _claim_extra();
+    void _copy_extra(id_type dst_, Tree const* that_tree, id_type src_)
+    {
+        NodeTagsAnchors const* C4_RESTRICT src = that_tree->_extra(src_);
+        if(!src)
+        {
+            _p(dst_)->m_extra = NONE;
+            return;
+        }
+        const NodeTagsAnchors tmp = *src; // _claim_extra() may move it
+        _p(dst_)->m_extra = NONE;
+        _extra_w(dst_) = tmp;
+    }
+    void _copy_extra_val(id_type dst_, Tree const* that_tree, id_type src_)
+    {
+        NodeTagsAnchors const& C4_RESTRICT src = that_tree->_extra_or_empty(src_);
+        const csubstr tag = src.val_tag, anchor = src.val_anchor; // _claim_extra() may move them
+        if(_extra(dst_) || !tag.empty() || !anchor.empty())
+        {
+            NodeTagsAnchors &C4_RESTRICT dst = _extra_w(dst_);
+            dst.val_tag = tag;
+            dst.val_anchor = anchor;
+        }
+    }
+    static void _set_ref_(csubstr ref, csubstr *anchor, csubstr *scalar, bool has_scalar) noexcept
+    {
+        csubstr trimmed = ref.begins_with('*') ? ref.sub(1) : ref;
+        *anchor = trimmed;
+        if((!has_scalar) || !scalar->ends_with(trimmed))
+            *scalar = ref;
     }
 
     /** @endcond */
@@ -1693,6 +1788,13 @@ public:
 
     id_type m_free_head;
     id_type m_free_tail;
+
+    /** the side table of tags and anchors: few nodes have them, so
+     * they are not in NodeData. Entries are not reused when a node is
+     * released; clear() empties the table. */
+    NodeTagsAnchors *m_extra;
+    id_type          m_extra_size;
+    id_type          m_extra_cap;
 
     substr m_arena;
     size_t m_arena_pos;
@@ -1733,18 +1835,30 @@ public:
                 set_key(node, i.key.scalar);
             }
         }
-        n->m_key.tag = i.key.tag;
-        n->m_val = i.val;
+        _set_key_extra_(node, i.key.tag, _extra_or_empty(node).key_anchor);
+        n = _p(node);
+        n->m_val = i.val.scalar;
+        _set_val_extra_(node, i.val.tag, i.val.anchor);
     }
     RYML_DEPRECATED("") void _set_key(id_type node, NodeScalar const& key, NodeType more_flags=0)
     {
-        _p(node)->m_key = key;
+        _p(node)->m_key = key.scalar;
+        _set_key_extra_(node, key.tag, key.anchor);
         _add_flags(node, KEY|more_flags);
     }
     RYML_DEPRECATED("") void _set_val(id_type node, NodeScalar const& val, NodeType more_flags=0)
     {
-        _p(node)->m_val = val;
+        _p(node)->m_val = val.scalar;
+        _set_val_extra_(node, val.tag, val.anchor);
         _add_flags(node, VAL|more_flags);
+    }
+    void _set_key_extra_(id_type node, csubstr tag, csubstr anchor)
+    {
+        if(_extra(node) || !tag.empty() || !anchor.empty()) { NodeTagsAnchors &e = _extra_w(node); e.key_tag = tag; e.key_anchor = anchor; }
+    }
+    void _set_val_extra_(id_type node, csubstr tag, csubstr anchor)
+    {
+        if(_extra(node) || !tag.empty() || !anchor.empty()) { NodeTagsAnchors &e = _extra_w(node); e.val_tag = tag; e.val_anchor = anchor; }
     }
     C4_SUPPRESS_WARNING_MSVC_POP
     C4_SUPPRESS_WARNING_GCC_CLANG_POP
