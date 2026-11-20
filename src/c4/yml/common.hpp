@@ -33,6 +33,14 @@
 #endif
 
 
+#ifndef RYML_SMALL_MAP_LINEAR_THRESHOLD_DEFAULT
+/// default starting threshold at which a map lookup will revert from
+/// linear to binary search. a value of 0 will cause binary search
+/// every time.
+#define RYML_SMALL_MAP_LINEAR_THRESHOLD_DEFAULT (64)
+#endif
+
+
 #ifndef RYML_LOCATIONS_SMALL_THRESHOLD
 /// threshold at which a location search will revert from linear to
 /// binary search.
@@ -166,7 +174,7 @@ struct RYML_EXPORT ReadResult
 public:
 
     /** convert to boolean to signify success/error */
-    operator bool() const noexcept { return node == VALID; }
+    operator bool() const noexcept { return node == VALID; } // NOLINT
 
 public:
 
@@ -232,10 +240,10 @@ struct RYML_EXPORT Location
     size_t col;    ///< column
     csubstr name;  ///< name of the file
 
-    operator bool () const noexcept { return !name.empty() || line != npos || offset != npos || col != npos; }
+    explicit operator bool () const noexcept { return !name.empty() || line != npos || offset != npos || col != npos; }
 
     C4_NO_INLINE Location() noexcept : offset(npos), line(npos), col(npos), name() {}
-    C4_NO_INLINE Location(                         size_t l          ) noexcept : offset(npos), line(l), col(npos), name() {}
+    C4_NO_INLINE Location(                         size_t l          ) noexcept : offset(npos), line(l), col(npos), name() {} // NOLINT
     C4_NO_INLINE Location(                         size_t l, size_t c) noexcept : offset(npos), line(l), col(c   ), name() {}
     C4_NO_INLINE Location(               size_t b, size_t l, size_t c) noexcept : offset(b   ), line(l), col(c   ), name() {}
     C4_NO_INLINE Location(    csubstr n,           size_t l          ) noexcept : offset(npos), line(l), col(npos), name(n) {}
@@ -260,7 +268,7 @@ struct RYML_EXPORT ErrorDataBasic
 {
     Location location; ///< location where the error was detected (may be from YAML or C++ source code)
     ErrorDataBasic() noexcept = default;
-    ErrorDataBasic(Location const& cpploc_) noexcept : location(cpploc_) {}
+    ErrorDataBasic(Location const& cpploc_) noexcept : location(cpploc_) {} // NOLINT
 };
 
 /** Data for a parse error.
@@ -328,6 +336,32 @@ using pfn_allocate = void* (*)(size_t len, void* hint, void *user_data);
 using pfn_free = void (*)(void* mem, size_t size, void *user_data);
 
 
+/** the type of the function used to make freshly allocated memory
+ * resident, for example by writing to each of its pages. When it is
+ * set, ryml calls it on every block that it allocates, through @ref
+ * Callbacks::allocate_and_make_resident(). It is null by default;
+ * @ref make_resident() is a ready-made implementation. */
+using pfn_make_resident = void (*)(void* mem, size_t len, void *user_data);
+
+
+/** A ready-made make_resident callback, to set with @ref
+ * Callbacks::set_make_resident(). It writes one zero byte in each
+ * page of the block, so that the system maps every page now, and
+ * not later at the first write to the page. It costs one write and
+ * one page fault per page, and makes the whole block resident even
+ * if only a part of it is used later.
+ *
+ * The page size comes from `GetSystemInfo()` on Windows, and from
+ * `sysconf(_SC_PAGESIZE)` on Linux, Unix, macOS and iOS.
+ * On other systems, or when the page size is not known, it does
+ * nothing.
+ *
+ * @warning It overwrites one byte in each page, so use it only on
+ * fresh memory, as @ref Callbacks::allocate_and_make_resident()
+ * does. */
+RYML_EXPORT void make_resident(void *mem, size_t len, void *user_data);
+
+
 /** the type of the function used to report basic errors.
  *
  * @warning Must not return. When implemented by the user, this
@@ -369,7 +403,12 @@ using pfn_error RYML_DEPRECATED("use a more specific error type: `basic`, `parse
 
 /** A c-style callbacks class to customize behavior on errors or
  * allocation. Can be used globally by the library and/or locally by
- * @ref Tree and @ref Parser objects. */
+ * @ref Tree and @ref Parser objects.
+ *
+ * To make the memory that ryml allocates resident as soon as it is
+ * allocated, set a make_resident callback with @ref
+ * set_make_resident(), for example @ref make_resident(). It is null
+ * by default. */
 struct RYML_EXPORT Callbacks
 {
     void *          m_user_data;   ///< data to be forwarded in every call to a callback
@@ -378,6 +417,7 @@ struct RYML_EXPORT Callbacks
     pfn_error_basic m_error_basic; ///< a pointer to a basic error handler function
     pfn_error_parse m_error_parse; ///< a pointer to a parse error handler function
     pfn_error_visit m_error_visit; ///< a pointer to a visit error handler function
+    pfn_make_resident m_make_resident; ///< a pointer to a function making allocated memory resident; null by default
 
 public:
 
@@ -420,6 +460,25 @@ public:
      * unless @ref RYML_NO_DEFAULT_CALLBACKS is defined. */
     Callbacks& set_error_visit(pfn_error_visit error_visit=nullptr);
 
+    /** Set or reset the make_resident callback. It has no default
+     * implementation: when the parameter is null, m_make_resident
+     * stays null, and @ref allocate_and_make_resident() only
+     * allocates. */
+    Callbacks& set_make_resident(pfn_make_resident make_resident_=nullptr);
+
+public:
+
+    /** Allocate memory with m_allocate, then, if m_make_resident is
+     * set, call it on the whole allocated block. ryml allocates all
+     * its memory with this. */
+    void* allocate_and_make_resident(size_t len, void* hint) const
+    {
+        void *mem = m_allocate(len, hint, m_user_data);
+        if(m_make_resident && mem)
+            m_make_resident(mem, len, m_user_data);
+        return mem;
+    }
+
 public:
 
     bool operator!= (Callbacks const& that) const { return !operator==(that); }
@@ -430,7 +489,8 @@ public:
                 m_free == that.m_free &&
                 m_error_basic == that.m_error_basic &&
                 m_error_parse == that.m_error_parse &&
-                m_error_visit == that.m_error_visit);
+                m_error_visit == that.m_error_visit &&
+                m_make_resident == that.m_make_resident);
     }
 };
 
@@ -448,8 +508,6 @@ C4_SUPPRESS_WARNING_GCC_CLANG("-Wdeprecated")
 C4_SUPPRESS_WARNING_GCC_CLANG("-Wdeprecated-declarations")
 C4_SUPPRESS_WARNING_MSVC(4996) // deprecated
 
-/** A tag type to select the key when building the tree, or when
- * (de)serializing with operator<< or operator>> */
 template<class K>
 struct RYML_LEGACY_OPERATOR("prefer .set_key() methods in the Tree and node")
 Key
@@ -457,8 +515,6 @@ Key
     K &&k; // NOLINT
 };
 
-/** A tag function to select the key when building the tree, or when
- * (de)serializing with operator<< or operator>> */
 template<class K>
 RYML_LEGACY_OPERATOR("prefer .set_key() methods in the Tree and node")
 C4_ALWAYS_INLINE Key<K> key(K && k)
@@ -470,19 +526,54 @@ C4_SUPPRESS_WARNING_POP
 
 /** @endcond */
 
+
 //-----------------------------------------------------------------------------
 //-----------------------------------------------------------------------------
 //-----------------------------------------------------------------------------
 
 /// @cond dev
 
-#define RYML_CB_ALLOC_HINT_(cb, T, num, hint) (T*) (cb).m_allocate((num) * sizeof(T), (hint), (cb).m_user_data)
+#define RYML_CB_ALLOC_HINT_(cb, T, num, hint) (T*) (cb).allocate_and_make_resident((num) * sizeof(T), (hint))
 #define RYML_CB_ALLOC_(cb, T, num) RYML_CB_ALLOC_HINT_((cb), T, (num), nullptr)
 #define RYML_CB_FREE_(cb, buf, T, num)                              \
     do {                                                            \
         (cb).m_free((buf), (num) * sizeof(T), (cb).m_user_data);    \
         (buf) = nullptr;                                            \
     } while(false)
+
+
+namespace detail {
+// grow: memcpy current len + new mem is uninitialized
+// grow a trivial buffer with length+capacity
+RYML_EXPORT_TEST C4_NODISCARD void* grow_buf_raw(void* buf, size_t len, size_t cap, size_t next_cap, Callbacks const& cb);
+// grow a trivial buffer with length only
+inline C4_NODISCARD void* grow_buf_raw(void* buf, size_t len, size_t next_len, Callbacks const& cb)
+{
+    return grow_buf_raw(buf, len, len, next_len, cb);
+}
+
+// resize a trivial buffer with length+capacity
+template<class T>
+C4_NODISCARD T* grow_buf(T* buf, size_t len, size_t cap, size_t next_cap, Callbacks const& cb)
+{
+    static_assert(std::is_trivial<T>::value, "must be mempcy-able");
+    return reinterpret_cast<T*>(grow_buf_raw(buf, sizeof(T) * len, sizeof(T) * cap, sizeof(T) * next_cap, cb)); // NOLINT
+}
+// resize a trivial buffer with length only
+template<class T>
+C4_NODISCARD T* grow_buf(T* buf, size_t len, size_t next_len, Callbacks const& cb)
+{
+    return grow_buf(buf, len, len, next_len, cb);
+}
+
+RYML_EXPORT C4_NODISCARD substr resize(substr buf, size_t nextlen, Callbacks const& cb);
+RYML_EXPORT C4_NODISCARD substr destroy(substr buf, Callbacks const& cb);
+} // detail
+
+
+//-----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 
 namespace detail {
 template<int8_t signedval, uint8_t unsignedval>
@@ -515,6 +606,7 @@ inline csubstr _c4prc(const char &C4_RESTRICT c) // pass by reference!
     || (defined(_MSC_VER) && !defined(__clang__))
 #define RYML_HAS_DEPRECATED_ENUMS_
 #endif
+
 
 /// @endcond
 

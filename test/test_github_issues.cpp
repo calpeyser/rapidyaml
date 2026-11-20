@@ -190,7 +190,7 @@ TEST(github, 268)
     ConstNodeRef root = tree.crootref();
     ASSERT_TRUE(root["map"].is_map());
     ASSERT_TRUE(root["map"].has_child("node"));
-    ASSERT_EQ(root["map"]["node"], "bar");
+    ASSERT_EQ(root["map"]["node"].val(), "bar");
 }
 
 TEST(github, 277)
@@ -410,14 +410,14 @@ N(MB, L{N(KP|SFS, "translation", L{N(VP, "-2"), N(VP, "-2"), N(VP, "5")})})
 );
 
 // these must work without quotes
-ADD_CASE_TO_GROUP("github3-problem2-ex1",
+ADD_CASE_TO_GROUP("github3-problem2-ex1", NO_COMPARE_EMITTED_INTS_JSON,//FIXME
 R"(
 audio resource:
 )",
 N(MB, L{N(KP|VN, "audio resource", /*"~"*/{})})
 );
 
-ADD_CASE_TO_GROUP("github3-problem2-ex2",
+ADD_CASE_TO_GROUP("github3-problem2-ex2", NO_COMPARE_EMITTED_INTS_JSON,//FIXME
 R"(
 audio resource:
 more:
@@ -570,7 +570,8 @@ N(MB, L{N(KP|SB, "Yt3ymqZXzLY", L{N(VP,"0.mp4"), N(VP,"1.mp4"), N(VP,"2.mp4"), N
 );
 
 ADD_CASE_TO_GROUP("github6",
-R"(videos:
+R"(
+videos:
 - UQxRibHKEDI:
   - 0.mp4
   - 1.mp4
@@ -741,7 +742,8 @@ R"(
 ADD_CASE_TO_GROUP("github128/1", RESOLVE_REFS | EXPECT_RESOLVE_ERROR, "a: *invalid");
 ADD_CASE_TO_GROUP("github128/2", RESOLVE_REFS | EXPECT_RESOLVE_ERROR, "*");
 ADD_CASE_TO_GROUP("github128/3", RESOLVE_REFS | EXPECT_RESOLVE_ERROR, "*abc");
-ADD_CASE_TO_GROUP("github128/4", "*abc", N(VAL, "*abc", AR(VALREF, "*abc")));
+ADD_CASE_TO_GROUP("github128/4", NO_COMPARE_EMITTED_INTS_JSON,
+                  "*abc", N(VAL, "*abc", AR(VALREF, "*abc")));
 
 ADD_CASE_TO_GROUP("github129", RESOLVE_REFS, R"(
 ref: &ref ref_val

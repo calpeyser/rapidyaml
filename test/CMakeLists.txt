@@ -1,13 +1,5 @@
 c4_setup_testing(GTEST)
 
-# Check that the scalar conversion header does not rely on fast_float's includes.
-c4_add_library(ryml-test-scalar-charconv-no-fast-float LIBRARY_TYPE OBJECT
-    SOURCES test_scalar_charconv_no_fast_float.cpp
-    LIBS ryml
-    FOLDER test)
-target_compile_definitions(ryml-test-scalar-charconv-no-fast-float PRIVATE C4CORE_NO_FAST_FLOAT)
-add_dependencies(ryml-test-build ryml-test-scalar-charconv-no-fast-float)
-
 function(ryml_get_target_exe target_name target_file)
     if(CMAKE_CROSSCOMPILING)
         set(tgt ${CMAKE_CROSSCOMPILING_EMULATOR} $<TARGET_FILE:${target_name}>)
@@ -33,7 +25,7 @@ function(ryml_setup_test_target_props target_name)
     get_target_property(target_type ${target_name} TYPE)
     if(target_type STREQUAL "SHARED_LIBRARY")
         set_target_properties(${target_name} PROPERTIES POSITION_INDEPENDENT_CODE ON)
-    endif ()
+    endif()
 endfunction()
 
 function(ryml_add_test_exe_no_lib name)
@@ -90,34 +82,44 @@ function(ryml_add_quickstart_test targetname suffix)
 endfunction()
 ryml_add_quickstart_test(ryml-test-quickstart noargs LOCK)
 ryml_add_quickstart_test(ryml-test-quickstart quiet ARGS --quiet LOCK)
-ryml_add_quickstart_test(ryml-test-quickstart-ints  ints)
-ryml_add_quickstart_test(ryml-test-quickstart-ints  ints-help ARGS --help)
-ryml_add_quickstart_test(ryml-test-quickstart-ints  ints-quiet ARGS --quiet)
-ryml_add_quickstart_test(ryml-test-quickstart-ints  ints-zero ARGS -e 0 -a 0)
-ryml_add_quickstart_test(ryml-test-quickstart-ints  ints-stdin STDIN ARGS -)
-ryml_add_quickstart_test(ryml-test-quickstart-ints  ints-stdin2 STDIN ARGS stdin)
-ryml_add_quickstart_test(ryml-test-quickstart-ints  ints-noretry ARGS -n)
-ryml_add_quickstart_test(ryml-test-quickstart-ints  ints-noretry-fail WILL_FAIL ARGS -n -e 0)
-ryml_add_quickstart_test(ryml-test-quickstart-ints  ints-file ARGS ${CMAKE_CURRENT_LIST_DIR}/../bm/cases/appveyor.yml)
-ryml_add_quickstart_test(ryml-test-quickstart-ints  ints-too-many WILL_FAIL ARGS a b c)
-ryml_add_quickstart_test(ryml-test-quickstart-ints  ints-missing_events WILL_FAIL ARGS -e)
-ryml_add_quickstart_test(ryml-test-quickstart-ints  ints-missing_arena WILL_FAIL ARGS -a)
-ryml_add_quickstart_test(ryml-test-quickstart-ints  ints-bad_events WILL_FAIL ARGS -e bad)
-ryml_add_quickstart_test(ryml-test-quickstart-ints  ints-bad_arena WILL_FAIL ARGS -a bad)
+ryml_add_quickstart_test(ryml-test-quickstart-ints  noargs)
+ryml_add_quickstart_test(ryml-test-quickstart-ints  help ARGS --help)
+ryml_add_quickstart_test(ryml-test-quickstart-ints  quiet ARGS --quiet)
+ryml_add_quickstart_test(ryml-test-quickstart-ints  zero ARGS -f -e 0 -a 0)
+ryml_add_quickstart_test(ryml-test-quickstart-ints  stdin STDIN ARGS -)
+ryml_add_quickstart_test(ryml-test-quickstart-ints  stdin2 STDIN ARGS stdin)
+ryml_add_quickstart_test(ryml-test-quickstart-ints  fixedsize ARGS -f)
+ryml_add_quickstart_test(ryml-test-quickstart-ints  noretry ARGS -f -n)
+ryml_add_quickstart_test(ryml-test-quickstart-ints  noretry-fail WILL_FAIL ARGS -f -n -e 0)
+ryml_add_quickstart_test(ryml-test-quickstart-ints  file ARGS ${CMAKE_CURRENT_LIST_DIR}/../bm/cases/appveyor.yml)
+ryml_add_quickstart_test(ryml-test-quickstart-ints  file-fixedsize ARGS -f ${CMAKE_CURRENT_LIST_DIR}/../bm/cases/appveyor.yml)
+ryml_add_quickstart_test(ryml-test-quickstart-ints  too-many WILL_FAIL ARGS a b c)
+ryml_add_quickstart_test(ryml-test-quickstart-ints  missing_events WILL_FAIL ARGS -e)
+ryml_add_quickstart_test(ryml-test-quickstart-ints  missing_arena WILL_FAIL ARGS -a)
+ryml_add_quickstart_test(ryml-test-quickstart-ints  bad_events WILL_FAIL ARGS -e bad)
+ryml_add_quickstart_test(ryml-test-quickstart-ints  bad_arena WILL_FAIL ARGS -a bad)
 
 
 c4_add_library(ryml-_testlib LIBRARY_TYPE STATIC
     SOURCES
        test_lib/callbacks_tester.hpp
-       test_lib/test_case_node.hpp
-       test_lib/test_case_node.cpp
        test_lib/test_case.hpp
        test_lib/test_case.cpp
+       test_lib/test_case_node.hpp
+       test_lib/test_case_node.cpp
+       test_lib/test_compare_events.hpp
+       test_lib/test_compare_events.cpp
        test_lib/test_engine.hpp
        test_lib/test_engine.cpp
-       test_lib/test_events_ints_helpers.hpp
-       test_lib/test_events_ints_helpers.cpp
+       test_lib/test_helpers_ints.hpp
+       test_lib/test_helpers_ints.cpp
+       test_lib/test_helpers_tree.hpp
+       test_lib/test_helpers_tree.cpp
        test_lib/test_save.cpp
+       test_lib/test_utils.hpp
+       test_lib/test_utils.cpp
+       test_lib/tree_and_ints.hpp
+       test_lib/tree_and_ints.cpp
     INC_DIRS ${CMAKE_CURRENT_LIST_DIR} ${CMAKE_CURRENT_LIST_DIR}/../src_extra
     LIBS ryml c4fs gtest
     FOLDER test)
@@ -163,21 +165,31 @@ endfunction()
 
 
 # some subjects have to be split over several files because gtest
-# causes some amount of bloat and some compilers (VS) or platforms
-# (mips) choke on the large binary
+# causes some amount of code bloat and some compilers (VS) or
+# platforms (mips) choke on the large binary
+
+ryml_add_test(callbacks)
+ryml_add_test(stack)
+ryml_add_test(location)
+ryml_add_test(small_map)
+ryml_add_test(version)
+ryml_add_test(file)
 
 ryml_add_test(engine_1_doc_1 BIG)
 ryml_add_test(engine_1_doc_2 BIG)
+ryml_add_test(engine_1_doc_3 BIG)
 ryml_add_test(engine_2_seq_block_1 BIG)
 ryml_add_test(engine_2_seq_block_2 BIG)
 ryml_add_test(engine_2_seq_flow_1 BIG)
 ryml_add_test(engine_2_seq_flow_2 BIG)
 ryml_add_test(engine_2_seq_flow_3 BIG)
+ryml_add_test(engine_2_seq_flow_4 BIG)
 ryml_add_test(engine_3_map_block_1 BIG)
 ryml_add_test(engine_3_map_block_2 BIG)
 ryml_add_test(engine_3_map_flow_1 BIG)
 ryml_add_test(engine_3_map_flow_2 BIG)
 ryml_add_test(engine_3_map_flow_3 BIG)
+ryml_add_test(engine_3_map_flow_4 BIG)
 ryml_add_test(engine_4_anchor BIG)
 ryml_add_test(engine_5_tag_1 BIG)
 ryml_add_test(engine_5_tag_2 BIG)
@@ -186,13 +198,13 @@ ryml_add_test(engine_6_qmrk_1 BIG)
 ryml_add_test(engine_6_qmrk_2 BIG)
 ryml_add_test(engine_6_qmrk_3 BIG)
 ryml_add_test(engine_6_qmrk_4 BIG)
+ryml_add_test(engine_6_qmrk_5 BIG)
 ryml_add_test(engine_7_seqimap BIG)
 ryml_add_test(engine_8_scalars_tokens BIG)
 ryml_add_test(engine_9_indentation BIG)
+ryml_add_test(engine_z_annot BIG)
 ryml_add_test(extra_ints)
-ryml_add_test(version)
-ryml_add_test(callbacks)
-ryml_add_test(stack)
+ryml_add_test(extra_ints_resolve)
 ryml_add_test(filter)
 ryml_add_test(parser)
 ryml_add_test(node_type)
@@ -207,12 +219,11 @@ ryml_add_test(serialize_3)
 ryml_add_test(basic)
 ryml_add_test(json)
 ryml_add_test(merge)
-ryml_add_test(location)
 ryml_add_test(bom_1)
 ryml_add_test(bom_2)
+ryml_add_test(scalar_roundtrip)
 ryml_add_test(escape_scalar)
 ryml_add_test(print_tree)
-ryml_add_test(file)
 ryml_add_test_case_group(empty_file)
 ryml_add_test_case_group(doc)
 ryml_add_test_case_group(seq)
@@ -283,6 +294,17 @@ if(RYML_DEFAULT_CALLBACKS AND NOT WIN32) # windows does like the abort call
     ryml_add_test_error(parse)
     ryml_add_test_error(visit)
 endif()
+
+
+#-------------------------------------------------------------------------
+# Check that the scalar conversion header does not rely on fast_float's includes.
+
+c4_add_library(ryml-test-scalar-charconv-no-fast-float LIBRARY_TYPE OBJECT
+    SOURCES test_scalar_charconv_no_fast_float.cpp
+    LIBS ryml
+    FOLDER test)
+target_compile_definitions(ryml-test-scalar-charconv-no-fast-float PRIVATE C4CORE_NO_FAST_FLOAT)
+add_dependencies(ryml-test-build ryml-test-scalar-charconv-no-fast-float)
 
 
 #-------------------------------------------------------------------------
@@ -404,7 +426,7 @@ if(RYML_TEST_SUITE)
             testsuite/testsuite_events.hpp
             testsuite/testsuite_parts.cpp
             testsuite/testsuite_parts.hpp
-        LIBS ryml-_testlib ryml-_testmain c4log
+        LIBS ryml-_testlib ryml-_testmain
         INC_DIRS ${CMAKE_CURRENT_LIST_DIR}/../src_extra
         FOLDER test)
     ryml_testbm_link_with_c4core(ryml-test-suite)
@@ -479,7 +501,7 @@ if(RYML_FUZZ_TEST OR RYML_FUZZ_DRIVERS)
     if(RYML_FUZZ_DRIVERS)
         set(ryml_fuzz_umbrella_cmds)
     endif()
-    function(ryml_add_fuzz_variant name fuzz_mk_target fuzzdir faildir)
+    function(ryml_add_fuzz_variant name hdr fuzz_mk_target fuzzdir faildir)
         function(ryml_add_fuzz_exe exename)
             cmake_parse_arguments("" "" "" "SRC;LIBS" ${ARGN})
             c4_add_executable(${exename}
@@ -497,6 +519,7 @@ if(RYML_FUZZ_TEST OR RYML_FUZZ_DRIVERS)
         ryml_add_fuzz_exe(ryml-test-fuzz-${name}
             SRC test_fuzz/test_fuzz_main.cpp
                 test_fuzz/test_fuzz_${name}.cpp
+                test_fuzz/test_fuzz_${hdr}.hpp
                 test_fuzz/test_fuzz_common.hpp
             LIBS ryml-_testmain c4fs
         )
@@ -533,6 +556,7 @@ if(RYML_FUZZ_TEST OR RYML_FUZZ_DRIVERS)
             # add the executable
             ryml_add_fuzz_exe(ryml-fuzz-${name}
                 SRC test_fuzz/test_fuzz_${name}.cpp
+                    test_fuzz/test_fuzz_${hdr}.hpp
                     test_fuzz/test_fuzz_common.hpp
             )
             if(NOT TARGET ryml-fuzz-drivers-build)
@@ -593,11 +617,13 @@ if(RYML_FUZZ_TEST OR RYML_FUZZ_DRIVERS)
         set(yaml_dirs yaml_fails yaml_merged yaml_rapidyamldump yaml_test_suite
                       ${json_dirs})
     endif()
-    ryml_add_fuzz_variant(srlz      srlz ${rapidyaml_data_dir}/fuzz ${srlz_dirs})
-    ryml_add_fuzz_variant(yaml_tree yaml ${rapidyaml_data_dir}/fuzz ${yaml_dirs})
-    ryml_add_fuzz_variant(yaml_ints yaml ${rapidyaml_data_dir}/fuzz ${yaml_dirs})
-    ryml_add_fuzz_variant(json_tree json ${rapidyaml_data_dir}/fuzz ${json_dirs})
-    ryml_add_fuzz_variant(json_ints json ${rapidyaml_data_dir}/fuzz ${json_dirs})
+    ryml_add_fuzz_variant(srlz               srlz srlz ${rapidyaml_data_dir}/fuzz ${srlz_dirs})
+    ryml_add_fuzz_variant(yaml_tree          tree yaml ${rapidyaml_data_dir}/fuzz ${yaml_dirs})
+    ryml_add_fuzz_variant(yaml_ints_resize   ints yaml ${rapidyaml_data_dir}/fuzz ${yaml_dirs})
+    ryml_add_fuzz_variant(yaml_ints_noresize ints yaml ${rapidyaml_data_dir}/fuzz ${yaml_dirs})
+    ryml_add_fuzz_variant(json_tree          tree json ${rapidyaml_data_dir}/fuzz ${json_dirs})
+    ryml_add_fuzz_variant(json_ints_resize   ints json ${rapidyaml_data_dir}/fuzz ${json_dirs})
+    ryml_add_fuzz_variant(json_ints_noresize ints json ${rapidyaml_data_dir}/fuzz ${json_dirs})
     # umbrella runner
     if(RYML_FUZZ_DRIVERS)
         add_custom_target(ryml-fuzz-drivers-run

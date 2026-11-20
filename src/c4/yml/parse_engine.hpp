@@ -17,7 +17,7 @@
 #   pragma warning(disable: 4251/*needs to have dll-interface to be used by clients of struct*/)
 #endif
 
-// NOLINTBEGIN(hicpp-signed-bitwise)
+// NOLINTBEGIN(*-signed-bitwise)
 
 namespace c4 {
 namespace yml {
@@ -45,8 +45,8 @@ namespace yml {
  *
  * - Extra handlers (not part of the library, but provided as extra classes):
  *
- *   - @ref extra::EventHandlerInts parses YAML into a contiguous
- *     integer array representing the YAML structure.
+ *   - @ref extra::ievt::EventHandlerIntsResize parses YAML into a contiguous
+ *     integer array representing the YAML structure. It is used in:
  *       - [play.yaml.com](https://play.yaml.com/)
  *       - [matrix.yaml.info/](https://matrix.yaml.info/)
  *       - the CI of this project.
@@ -108,8 +108,8 @@ namespace yml {
  * cases. They are called by the parser when a just-handled
  * value/container is actually the first key of a new map:
  *
- *   - `actually_val_is_first_key_of_new_map_flow()` (@ref EventHandlerTree::actually_val_is_first_key_of_new_map_flow() "see implementation in EventHandlerTree" / @ref extra::EventHandlerInts::actually_val_is_first_key_of_new_map_flow() "see implementation in EventHandlerInts")
- *   - `actually_val_is_first_key_of_new_map_block()` (@ref EventHandlerTree::actually_val_is_first_key_of_new_map_block() "see implementation in EventHandlerTree" / @ref extra::EventHandlerInts::actually_val_is_first_key_of_new_map_block() "see implementation in EventHandlerInts")
+ *   - `actually_val_is_first_key_of_new_map_flow()` (@ref EventHandlerTree::actually_val_is_first_key_of_new_map_flow() "see implementation in EventHandlerTree" / @ref extra::ievt::EventHandlerIntsNoResize::actually_val_is_first_key_of_new_map_flow() "see implementation in EventHandlerInts")
+ *   - `actually_val_is_first_key_of_new_map_block()` (@ref EventHandlerTree::actually_val_is_first_key_of_new_map_block() "see implementation in EventHandlerTree" / @ref extra::ievt::EventHandlerIntsNoResize::actually_val_is_first_key_of_new_map_block() "see implementation in EventHandlerInts")
  *
  * For example, consider an implicit map inside a seq: `[a: b, c:
  * d]` which is parsed as `[{a: b}, {c: d}]`. The standard event
@@ -232,7 +232,7 @@ struct FilterResultExtending;
 typedef enum BlockChomp_ { // NOLINT
     CHOMP_CLIP,    //!< single newline at end (default)
     CHOMP_STRIP,   //!< no newline at end     (-)
-    CHOMP_KEEP     //!< all newlines from end (+)
+    CHOMP_KEEP,    //!< all newlines from end (+)
 } BlockChomp_e;
 struct ScannedBlock
 {
@@ -255,7 +255,8 @@ struct Annotation
         size_t line;
         csubstr orig;
     };
-    Entry annotations[2];
+    #define RYML_NUMANNOT_ (2)
+    Entry annotations[RYML_NUMANNOT_];
     uint8_t num_entries;
 };
 /** @endcond */
@@ -277,10 +278,12 @@ struct Annotation
  * - @ref EventHandlerTree (see @ref doc_event_handlers_tree) is the
  *   handler responsible for creating the ryml @ref Tree
  *
- * - @ref extra::EventHandlerInts (see @ref doc_event_handlers_ints)
- *   is the handler responsible for emitting integer-coded events. It
- *   is intended for implementing fully-conformant parsing in other
- *   programming languages (integration is currently under work for
+ * - @ref extra::ievt::EventHandlerIntsResize and
+ *   extra::ievt::EventHandlerIntsNoResize (see @ref
+ *   doc_event_handlers_ints) are the handlers responsible for emitting
+ *   integer-coded events. They is intended for implementing
+ *   fully-conformant parsing in other programming languages
+ *   (integration is currently under work for
  *   [YamlScript](https://github.com/yaml/yamlscript) and
  *   [go-yaml](https://github.com/yaml/go-yaml/)). It is not part of
  *   the library and is not installed.
@@ -298,7 +301,7 @@ public:
     /** @name construction and assignment */
     /** @{ */
 
-    ParseEngine(EventHandler *evt_handler, ParserOptions const& opts={});
+    ParseEngine(EventHandler *evt_handler, ParserOptions const& opts={}); // NOLINT
     ~ParseEngine() noexcept;
 
     ParseEngine(ParseEngine &&) noexcept;
@@ -607,7 +610,12 @@ private:
 
 private:
 
+    /// get the full source buffer
     C4_ALWAYS_INLINE substr _buf() const noexcept { return m_evt_handler->m_src; }
+    /// get the full source buffer, starting at the current point
+    C4_ALWAYS_INLINE substr _buf_rem() const /*noexcept*/ { return m_evt_handler->m_src.sub(m_evt_handler->m_curr->pos.offset); } // NOLINT
+    /// get the full source buffer, starting at the current point plus `extra` slots
+    C4_ALWAYS_INLINE substr _buf_rem(size_t extra) const /*noexcept*/ { return m_evt_handler->m_src.sub(m_evt_handler->m_curr->pos.offset + extra); } // NOLINT
 
     C4_ALWAYS_INLINE bool has_all(ParserFlag_t f) const noexcept { return (m_evt_handler->m_curr->flags & f) == f; }
     C4_ALWAYS_INLINE bool has_any(ParserFlag_t f) const noexcept { return (m_evt_handler->m_curr->flags & f) != 0; }
@@ -776,7 +784,7 @@ C4_SUPPRESS_WARNING_GCC_POP
 } // namespace yml
 } // namespace c4
 
-// NOLINTEND(hicpp-signed-bitwise)
+// NOLINTEND(*-signed-bitwise)
 
 #if defined(_MSC_VER)
 #   pragma warning(pop)

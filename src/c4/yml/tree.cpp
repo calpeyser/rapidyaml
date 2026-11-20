@@ -7,7 +7,7 @@
 #ifndef C4_YML_NODE_HPP_
 #include "c4/yml/node.hpp"
 #endif
-#ifndef C4_YML_REFERENCE_RESOLVERS_HPP_
+#ifndef C4_YML_REFERENCE_RESOLVER_HPP_
 #include "c4/yml/reference_resolver.hpp"
 #endif
 
@@ -221,7 +221,8 @@ void Tree::_copy(Tree const& that)
     if(that.m_cap)
     {
         m_buf = RYML_CB_ALLOC_HINT_(m_callbacks, NodeData, (size_t)that.m_cap, that.m_buf);
-        memcpy(m_buf, that.m_buf, (size_t)that.m_first_unused * sizeof(NodeData));
+        if(that.m_first_unused)
+            memcpy(m_buf, that.m_buf, (size_t)that.m_first_unused * sizeof(NodeData));
     }
     m_cap = that.m_cap;
     m_size = that.m_size;
@@ -300,7 +301,8 @@ void Tree::reserve(id_type cap)
         NodeData *buf = RYML_CB_ALLOC_HINT_(m_callbacks, NodeData, (size_t)cap, m_buf);
         if(m_buf)
         {
-            memcpy(buf, m_buf, (size_t)m_first_unused * sizeof(NodeData));
+            if(m_first_unused)
+                memcpy(buf, m_buf, (size_t)m_first_unused * sizeof(NodeData));
             RYML_CB_FREE_(m_callbacks, m_buf, NodeData, (size_t)m_cap);
         }
         m_cap = cap;
@@ -1057,7 +1059,7 @@ id_type Tree::duplicate_children_no_rep(Tree const *src, id_type node, id_type p
                 {
                     // the dst duplicate is located before the node which will be inserted,
                     // and will be overridden by the duplicate. So replace it.
-                    _c4dbgpf("duplicate_no_dstnode_dup: replace {}/{} with {}/{}", parent, dstnode_dup, node, i);
+                    _c4dbgpf("duplicate_no_rep: replace {}/{} with {}/{}", parent, dstnode_dup, node, i);
                     if(prev == dstnode_dup)
                         prev = prev_sibling(dstnode_dup);
                     remove(dstnode_dup);
@@ -1065,7 +1067,7 @@ id_type Tree::duplicate_children_no_rep(Tree const *src, id_type node, id_type p
                 }
                 else if(prev == NONE)
                 {
-                    _c4dbgpf("duplicate_no_dstnode_dup: {}=prev <- {}", prev, dstnode_dup);
+                    _c4dbgpf("duplicate_no_rep: {}=prev <- {}", prev, dstnode_dup);
                     // first iteration with prev = after = NONE and dstnode_dupetition
                     prev = dstnode_dup;
                 }
@@ -1073,11 +1075,11 @@ id_type Tree::duplicate_children_no_rep(Tree const *src, id_type node, id_type p
                 {
                     // dstnode_dup is located after the node which will be inserted
                     // and overrides it. So move the dstnode_dup into this node's place.
-                    _c4dbgpf("duplicate_no_dstnode_dup: move({}, {})", dstnode_dup, prev);
+                    _c4dbgpf("duplicate_no_rep: move({}, {})", dstnode_dup, prev);
                     move(dstnode_dup, prev);
                     prev = dstnode_dup;
                 }
-            } // there's a dstnode_dupetition
+            } // there's a repetition
         }
     }
 
@@ -1164,19 +1166,19 @@ void Tree::merge_with(Tree const *src, id_type src_node, id_type dst_node)
 
 //-----------------------------------------------------------------------------
 
-void Tree::resolve(ResolveOptions const& opts)
+void Tree::resolve(ResolveOptions const& opts, ResolveParams const& params)
 {
     if(m_size == 0)
         return;
-    ReferenceResolver rr;
-    resolve(&rr, opts);
+    ReferenceResolver rr(callbacks());
+    resolve(&rr, opts, params);
 }
 
-void Tree::resolve(ReferenceResolver *C4_RESTRICT rr, ResolveOptions const& opts)
+void Tree::resolve(ReferenceResolver *C4_RESTRICT rr, ResolveOptions const& opts, ResolveParams const& params)
 {
     if(m_size == 0)
         return;
-    rr->resolve(this, opts);
+    rr->resolve(this, opts, params);
 }
 
 
@@ -1915,10 +1917,9 @@ bool Tree::_location_from_node(Parser const& parser, id_type node, Location *C4_
         }
     }
 
-    if(ty.is_container())
+    if(ty.is_container() && _location_from_cont(parser, node, loc))
     {
-        if(_location_from_cont(parser, node, loc))
-            return true;
+        return true;
     }
 
     if(type(node) != NOTYPE && level == 0)
@@ -1926,29 +1927,20 @@ bool Tree::_location_from_node(Parser const& parser, id_type node, Location *C4_
         // try the prev sibling
         {
             const id_type prev = prev_sibling(node);
-            if(prev != NONE)
-            {
-                if(_location_from_node(parser, prev, loc, level+1))
-                    return true;
-            }
+            if(prev != NONE && _location_from_node(parser, prev, loc, level+1))
+                return true;
         }
         // try the next sibling
         {
             const id_type next = next_sibling(node);
-            if(next != NONE)
-            {
-                if(_location_from_node(parser, next, loc, level+1))
-                    return true;
-            }
+            if(next != NONE && _location_from_node(parser, next, loc, level+1))
+                return true;
         }
         // try the parent
         {
             const id_type parent = this->parent(node);
-            if(parent != NONE)
-            {
-                if(_location_from_node(parser, parent, loc, level+1))
-                    return true;
-            }
+            if(parent != NONE && _location_from_node(parser, parent, loc, level+1))
+                return true;
         }
     }
     return false;

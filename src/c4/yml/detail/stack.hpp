@@ -35,6 +35,7 @@ class stack
 public:
 
     enum : id_type { sso_size = N }; // NOLINT
+    using value_type = T;
 
 public:
 
@@ -48,7 +49,7 @@ public:
 
     constexpr static bool is_contiguous() noexcept { return true; }
 
-    stack(Callbacks const& cb)
+    stack(Callbacks const& cb) // NOLINT
         : m_buf()
         , m_stack(m_buf)
         , m_size(0)
@@ -97,7 +98,7 @@ public:
 
     void clear()
     {
-        _free();
+        m_size = 0;
     }
 
     void resize(id_type sz)
@@ -124,6 +125,13 @@ public:
             reserve(m_capacity + 1);
         m_stack[m_size] = m_stack[m_size - 1];
         ++m_size;
+    }
+
+    T& emplace_top()
+    {
+        if(m_size == m_capacity)
+            reserve(m_capacity + 1);
+        return m_stack[m_size++];
     }
 
     T const& C4_RESTRICT pop()
@@ -153,18 +161,26 @@ public:
     using       iterator = T       *;
     using const_iterator = T const *;
 
-    iterator begin() noexcept { return m_stack; }
-    iterator end  () noexcept { return m_stack + m_size; }
+    C4_ALWAYS_INLINE iterator begin() noexcept { return m_stack; }
+    C4_ALWAYS_INLINE iterator end  () noexcept { return m_stack + m_size; }
 
-    const_iterator begin() const noexcept { return (const_iterator)m_stack; }
-    const_iterator end  () const noexcept { return (const_iterator)m_stack + m_size; }
+    C4_ALWAYS_INLINE const_iterator begin() const noexcept { return (const_iterator)m_stack; }
+    C4_ALWAYS_INLINE const_iterator end  () const noexcept { return (const_iterator)m_stack + m_size; }
 
 public:
 
     void _free();
     void _cp(stack const* C4_RESTRICT that);
     void _mv(stack * that);
-    void _cb(Callbacks const& cb);
+    void _cb(Callbacks const& cb)
+    {
+        // free if the mem callbacks are different
+        if(cb.m_allocate != m_callbacks.m_allocate ||
+           cb.m_free != m_callbacks.m_free ||
+           cb.m_user_data != m_callbacks.m_user_data)
+            _free();
+        m_callbacks = cb;
+    }
 
 };
 
@@ -182,12 +198,12 @@ void stack<T, N>::reserve(id_type cap)
         return;
     id_type next = 2 * m_capacity;
     cap = cap > next ? cap : next;
-    T *ptr = (T*) m_callbacks.m_allocate((size_t)cap * sizeof(T), m_stack, m_callbacks.m_user_data);
+    T *ptr = RYML_CB_ALLOC_HINT_(m_callbacks, T, (size_t)cap, m_stack);
     RYML_ASSERT_BASIC_CB_(m_callbacks, ((uintptr_t)ptr % alignof(T)) == 0u);
     if(m_size)
         memcpy(ptr, m_stack, (size_t)m_size * sizeof(T));
     if(m_stack != m_buf)
-        m_callbacks.m_free(m_stack, (size_t)m_capacity * sizeof(T), m_callbacks.m_user_data);
+        RYML_CB_FREE_(m_callbacks, m_stack, T, (size_t)m_capacity);
     m_stack = ptr;
     m_capacity = cap;
 }
@@ -201,7 +217,7 @@ void stack<T, N>::_free()
     RYML_ASSERT_BASIC_CB_(m_callbacks, m_stack != nullptr); // this structure cannot be memset() to zero
     if(m_stack != m_buf)
     {
-        m_callbacks.m_free(m_stack, (size_t)m_capacity * sizeof(T), m_callbacks.m_user_data);
+        RYML_CB_FREE_(m_callbacks, m_stack, T, (size_t)m_capacity);
         m_stack = m_buf;
         m_capacity = N;
     }
@@ -228,7 +244,8 @@ void stack<T, N>::_cp(stack const* C4_RESTRICT that)
         RYML_ASSERT_BASIC_CB_(m_callbacks, that->m_capacity <= N);
         RYML_ASSERT_BASIC_CB_(m_callbacks, that->m_size <= that->m_capacity);
     }
-    memcpy(m_stack, that->m_stack, that->m_size * sizeof(T));
+    if(that->m_size)
+        memcpy(m_stack, that->m_stack, that->m_size * sizeof(T));
     m_size = that->m_size;
     m_capacity = that->m_size < N ? N : that->m_size;
     m_callbacks = that->m_callbacks;
@@ -250,7 +267,8 @@ void stack<T, N>::_mv(stack * that)
     {
         RYML_ASSERT_BASIC_CB_(m_callbacks, that->m_capacity <= N);
         RYML_ASSERT_BASIC_CB_(m_callbacks, that->m_size <= that->m_capacity);
-        memcpy(m_buf, that->m_buf, that->m_size * sizeof(T));
+        if(that->m_size)
+            memcpy(m_buf, that->m_buf, that->m_size * sizeof(T));
         m_stack = m_buf;
     }
     m_size = that->m_size;
@@ -261,19 +279,6 @@ void stack<T, N>::_mv(stack * that)
     that->m_stack = that->m_buf;
     that->m_capacity = N;
     that->m_size = 0;
-}
-
-
-//-----------------------------------------------------------------------------
-
-template<class T, id_type N>
-void stack<T, N>::_cb(Callbacks const& cb)
-{
-    if(cb != m_callbacks)
-    {
-        _free();
-        m_callbacks = cb;
-    }
 }
 
 } // namespace detail

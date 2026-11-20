@@ -73,7 +73,7 @@ C4_SUPPRESS_WARNING_GCC("-Wnull-dereference")
 C4_SUPPRESS_WARNING_GCC("-Wduplicated-branches")
 #endif
 
-// NOLINTBEGIN(hicpp-signed-bitwise,cppcoreguidelines-avoid-goto,hicpp-avoid-goto,hicpp-multiway-paths-covered,modernize-avoid-c-style-cast)
+// NOLINTBEGIN(*-signed-bitwise,*-avoid-goto,hicpp-multiway-paths-covered,modernize-avoid-c-style-cast,*-unhandled-code-path)
 
 namespace c4 {
 namespace yml {
@@ -1032,14 +1032,12 @@ bool ParseEngine<EventHandler>::_scan_scalar_plain_seq_flow(ScannedScalar *C4_RE
     if(!m_evt_handler->m_curr->line_contents.rem.len || !_is_valid_start_scalar_plain_flow(m_evt_handler->m_curr->line_contents.rem))
         return false;
 
-    substr s = _buf().sub(m_evt_handler->m_curr->pos.offset);
-    RYML_ASSERT_PARSE_CB_(m_evt_handler->m_stack.m_callbacks, s.begins_with(m_evt_handler->m_curr->line_contents.rem), m_evt_handler->m_curr->pos);
-
     _c4dbgp("scanning seqflow scalar...");
 
-    bool needs_filter = false;
+    substr s = _buf_rem(); // the full remaining string (not just current line)
     size_t col = 0; // zero-based column
     size_t offs = 0; // offset
+    bool needs_filter = false;
     for( ; offs < s.len; ++offs, ++col)
     {
         const char c = s.str[offs];
@@ -1155,14 +1153,12 @@ bool ParseEngine<EventHandler>::_scan_scalar_plain_map_flow(ScannedScalar *C4_RE
     if(!m_evt_handler->m_curr->line_contents.rem.len || !_is_valid_start_scalar_plain_flow(m_evt_handler->m_curr->line_contents.rem))
         return false;
 
-    substr s = _buf().sub(m_evt_handler->m_curr->pos.offset);
-    RYML_ASSERT_PARSE_CB_(m_evt_handler->m_stack.m_callbacks, s.begins_with(m_evt_handler->m_curr->line_contents.rem), m_evt_handler->m_curr->pos);
-
     _c4dbgp("scanning mapflow scalar...");
 
-    bool needs_filter = false;
+    substr s = _buf_rem(); // the full remaining string (not just current line)
     size_t col = 0; // zero-based column
     size_t offs = 0; // offset
+    bool needs_filter = false;
     for( ; offs < s.len; ++offs, ++col)
     {
         const char c = s.str[offs];
@@ -1436,7 +1432,7 @@ bool ParseEngine<EventHandler>::_scan_scalar_plain_blck(ScannedScalar *C4_RESTRI
         {
             const char curr = s.str[i];
             //_c4dbgpf("[{}]='{}'", i, _c4prc(curr));
-            switch(curr)
+            switch(curr) // NOLINT
             {
             case ':':
                 _c4dbgpf("[{}]: got suspicious ':'", i);
@@ -1496,7 +1492,7 @@ bool ParseEngine<EventHandler>::_scan_scalar_plain_blck(ScannedScalar *C4_RESTRI
         else if(next_indentation == 0 && next_peeked.len > 0)
         {
             const char first = next_peeked.str[0];
-            switch(first)
+            switch(first) // NOLINT
             {
             case '-':
                 _c4dbgpf("doc begin? peeked={}", prs_(next_peeked, size_t(3)));
@@ -1710,7 +1706,6 @@ void ParseEngine<EventHandler>::_end_flow_container(size_t orig_indent, bool mul
             _c4err("multiline key is invalid");
         if C4_UNLIKELY(!_maybe_scan_following_colon())
             _c4err("could not find ':' colon after key");
-        _maybe_skip_whitespace_tokens();
         addrem_flags(RVAL, RKEY|RKCL|RNXT);
     }
     else if(has_none(RFLOW))
@@ -1733,6 +1728,7 @@ void ParseEngine<EventHandler>::_end_flow_container(size_t orig_indent, bool mul
         RYML_ASSERT_PARSE_CB_(m_evt_handler->m_stack.m_callbacks, has_any(RFLOW), m_evt_handler->m_curr->pos);
         _mark_seqflow_val_end();
     }
+    _maybe_skip_whitespace_tokens();
 }
 
 template<class EventHandler>
@@ -1829,7 +1825,7 @@ void ParseEngine<EventHandler>::_begin2_doc()
     m_has_directives_yaml = false;
     m_has_directives = false;
     m_doc_empty = true;
-    add_flags(RDOC);
+    addrem_flags(RDOC, SDDN);
     m_evt_handler->begin_doc();
     m_evt_handler->m_curr->indref = 0; // ?
 }
@@ -1841,7 +1837,7 @@ void ParseEngine<EventHandler>::_begin2_doc_expl()
     m_has_directives_yaml = false;
     m_has_directives = false;
     m_doc_empty = true;
-    add_flags(RDOC);
+    addrem_flags(RDOC, SDDN);
     m_evt_handler->begin_doc_expl();
     m_evt_handler->m_curr->indref = 0; // ?
 }
@@ -1892,14 +1888,6 @@ void ParseEngine<EventHandler>::_maybe_end_doc()
         _c4dbgp("doc must be finished");
         _end2_doc();
     }
-    else if(m_doc_empty && (m_pending_tags.num_entries || m_pending_anchors.num_entries))
-    {
-        _c4dbgp("no doc to finish, but pending annotations");
-        m_evt_handler->begin_doc();
-        _handle_annotations_before_blck_val_scalar();
-        m_evt_handler->set_val_scalar_plain_empty();
-        m_evt_handler->end_doc();
-    }
 }
 
 template<class EventHandler>
@@ -1919,11 +1907,17 @@ template<class EventHandler>
 void ParseEngine<EventHandler>::_check_trailing_doc_token()
 {
     const bool is_root = (m_evt_handler->m_stack.size() == 1u);
-    const bool isndoc = (m_evt_handler->m_curr->flags & NDOC) != 0;
     const bool suspicious = m_evt_handler->template has_any_<MAP|SEQ|VAL>();
-    _c4dbgpf("target={} isroot={} suspicious={} ndoc={}", m_evt_handler->m_curr->node_id, is_root, suspicious, isndoc);
-    if((is_root || m_evt_handler->template has_any_<DOC>()) && suspicious && !isndoc)
-        _c4err("parse error");
+    _c4dbgpf("target={} isroot={} DOC={} suspicious={}(MAP={}|SEQ={}|VAL={})", m_evt_handler->m_curr->node_id, is_root,
+             m_evt_handler->template has_any_<DOC>(), suspicious, m_evt_handler->template has_any_<MAP>(), m_evt_handler->template has_any_<SEQ>(), m_evt_handler->template has_any_<VAL>());
+    if((is_root || m_evt_handler->template has_any_<DOC>()) && suspicious)
+    {
+        const bool sudden = (m_evt_handler->m_curr->flags & SDDN) != 0;
+        const bool isndoc = (m_evt_handler->m_curr->flags & NDOC) != 0;
+        _c4dbgpf("target={} sudden={} isndoc={}", m_evt_handler->m_curr->node_id, sudden, isndoc);
+        if(!sudden || !isndoc)
+            _c4err("parse error");
+    }
 }
 
 template<class EventHandler>
@@ -1932,7 +1926,7 @@ void ParseEngine<EventHandler>::_end_doc_suddenly()
     _c4dbgp("end doc suddenly");
     _end_doc_suddenly__pop();
     _end2_doc_expl();
-    addrem_flags(RUNK|RTOP|NDOC, RMAP|RSEQ|RDOC);
+    addrem_flags(RUNK|RTOP|NDOC|SDDN, RMAP|RSEQ|RDOC);
 }
 
 template<class EventHandler>
@@ -1941,9 +1935,7 @@ void ParseEngine<EventHandler>::_check_doc_end_tokens() const
     csubstr rem = m_evt_handler->m_curr->line_contents.rem;
     RYML_ASSERT_PARSE_CB_(m_evt_handler->m_stack.m_callbacks, !rem.begins_with_any(". \t"), m_evt_handler->m_curr->pos);
     if C4_UNLIKELY(rem.len && !rem.begins_with('#'))
-    {
         _c4err("parse error");
-    }
 }
 
 template<class EventHandler>
@@ -1958,33 +1950,36 @@ void ParseEngine<EventHandler>::_start_doc_suddenly()
 template<class EventHandler>
 void ParseEngine<EventHandler>::_end_stream()
 {
+    const char *errmsg;
     _c4dbgpf("end_stream, level={} node_id={}", m_evt_handler->m_curr->level, m_evt_handler->m_curr->node_id);
-    if C4_UNLIKELY(has_all(RSEQ|RFLOW))
-        _c4err("missing terminating ]");
-    else if C4_UNLIKELY(has_all(RMAP|RFLOW))
-        _c4err("missing terminating }");
+    if(has_any(RFLOW))
+    {
+        if C4_UNLIKELY(has_any(RMAP))
+        {
+            errmsg = "missing terminating }";
+            goto err; // NOLINT
+        }
+        else if C4_UNLIKELY(has_any(RSEQ|RSEQIMAP))
+        {
+            errmsg = "missing terminating ]";
+            goto err; // NOLINT
+        }
+    }
     if(m_evt_handler->m_stack.size() > 1)
         _handle_indentation_pop(m_evt_handler->m_stack.begin());
     if(has_all(RDOC))
     {
         _end2_doc();
     }
-    else if(has_all(RTOP|RUNK))
-    {
-        if(m_pending_anchors.num_entries || m_pending_tags.num_entries)
-        {
-            if(m_doc_empty)
-            {
-                m_evt_handler->begin_doc();
-                _handle_annotations_before_blck_val_scalar();
-                m_evt_handler->set_val_scalar_plain_empty();
-                m_evt_handler->end_doc();
-            }
-        }
-    }
     m_evt_handler->end_stream();
     if C4_UNLIKELY(m_has_directives)
-        _c4err("directives cannot be used without a document");
+    {
+        errmsg = "directives cannot be used without a document";
+        goto err; // NOLINT
+    }
+    return;
+err:
+    _c4err(errmsg);
 }
 
 
@@ -2129,10 +2124,10 @@ ScannedScalar ParseEngine<EventHandler>::_scan_scalar_squot()
     // quoted scalars can spread over multiple lines!
     // nice explanation here: http://yaml-multiline.info/
 
-    RYML_ASSERT_PARSE_CB_(m_evt_handler->m_stack.m_callbacks, _buf().sub(m_evt_handler->m_curr->pos.offset).begins_with('\''), m_evt_handler->m_curr->pos);
+    RYML_ASSERT_PARSE_CB_(m_evt_handler->m_stack.m_callbacks, _buf_rem().begins_with('\''), m_evt_handler->m_curr->pos);
 
     // a span to the end of the file, skipping the opening quote
-    substr s = _buf().sub(m_evt_handler->m_curr->pos.offset + 1);
+    substr s = _buf_rem(1);
     _line_progressed(1); // advance over the opening quote
     RYML_ASSERT_PARSE_CB_(m_evt_handler->m_stack.m_callbacks, !m_evt_handler->m_curr->at_line_beginning(), m_evt_handler->m_curr->pos);
 
@@ -2195,10 +2190,10 @@ ScannedScalar ParseEngine<EventHandler>::_scan_scalar_dquot()
     // quoted scalars can spread over multiple lines!
     // nice explanation here: http://yaml-multiline.info/
 
-    RYML_ASSERT_PARSE_CB_(m_evt_handler->m_stack.m_callbacks, _buf().sub(m_evt_handler->m_curr->pos.offset).begins_with('"'), m_evt_handler->m_curr->pos);
+    RYML_ASSERT_PARSE_CB_(m_evt_handler->m_stack.m_callbacks, _buf_rem().begins_with('"'), m_evt_handler->m_curr->pos);
 
     // a span to the end of the file, skipping the opening quote
-    substr s = _buf().sub(m_evt_handler->m_curr->pos.offset + 1);
+    substr s = _buf_rem(1);
     _line_progressed(1); // advance over the opening quote
     RYML_ASSERT_PARSE_CB_(m_evt_handler->m_stack.m_callbacks, !m_evt_handler->m_curr->at_line_beginning(), m_evt_handler->m_curr->pos);
 
@@ -2206,8 +2201,8 @@ ScannedScalar ParseEngine<EventHandler>::_scan_scalar_dquot()
     size_t pos = npos; // find the pos of the matching quote
     while( ! _finished_file())
     {
-        #if defined(__GNUC__) && (/*__GNUC__ == 12 || */__GNUC__ == 13)
-        C4_DONT_OPTIMIZE(m_evt_handler->m_curr->line_contents.rem); // prevent hoisting
+        #if defined(__GNUC__) && (/*__GNUC__ == 12 || */__GNUC__ >= 13 && __GNUC__ <= 16)
+        C4_DONT_OPTIMIZE(m_evt_handler->m_curr->line_contents.rem); // prevent erroneous hoisting
         #endif
         csubstr rem = m_evt_handler->m_curr->line_contents.rem;
         _c4dbgpf("scanning double quoted scalar @ line[{}]:  line='{}'", m_evt_handler->m_curr->pos.line, rem);
@@ -3097,7 +3092,7 @@ void ParseEngine<EventHandler>::_filter_chomp(FilterProcessor &C4_RESTRICT proc,
             {
                 const char curr = proc.curr();
                 _c4dbgchomp("curr='{}'", _c4prc(curr));
-                switch(curr)
+                switch(curr) // NOLINT
                 {
                 case '\n':
                     {
@@ -3150,7 +3145,7 @@ void ParseEngine<EventHandler>::_filter_chomp(FilterProcessor &C4_RESTRICT proc,
         {
             const char curr = proc.curr();
             _c4dbgchomp("CLIP: '{}'", _c4prc(curr));
-            switch(curr)
+            switch(curr) // NOLINT
             {
             case '\n':
             {
@@ -3181,7 +3176,7 @@ void ParseEngine<EventHandler>::_filter_chomp(FilterProcessor &C4_RESTRICT proc,
         {
             const char curr = proc.curr();
             _c4dbgchomp("KEEP: '{}'", _c4prc(curr));
-            switch(curr)
+            switch(curr) // NOLINT
             {
             case '\n':
                 _c4dbgchomp("copy newline!", curr);
@@ -4098,6 +4093,7 @@ inline C4_NO_INLINE csubstr detail::_parser_flags_to_str(substr buf, ParserFlag_
     _prflag(RDOC);
     _prflag(NDOC);
     _prflag(USTY);
+    _prflag(SDDN);
     _prflag(RSEQIMAP);
 
     #undef _prflag
@@ -4332,44 +4328,56 @@ template<class EventHandler>
 void ParseEngine<EventHandler>::_add_annotation(Annotation *C4_RESTRICT dst, csubstr str)
 {
     _c4dbgpf("store annotation[{}]: {}", dst->num_entries, prs_(str));
-    RYML_ASSERT_PARSE_CB_(m_evt_handler->m_stack.m_callbacks, dst->num_entries < C4_COUNTOF(dst->annotations), m_evt_handler->m_curr->pos); // NOLINT(bugprone-sizeof-expression)
-    dst->annotations[dst->num_entries].str = str;
-    dst->annotations[dst->num_entries].indentation = {};
-    dst->annotations[dst->num_entries].line = {};
-    dst->annotations[dst->num_entries].orig = {};
-    ++dst->num_entries;
+    if C4_LIKELY (dst->num_entries < RYML_NUMANNOT_)
+    {
+        dst->annotations[dst->num_entries].str = str;
+        dst->annotations[dst->num_entries].indentation = {};
+        dst->annotations[dst->num_entries].line = {};
+        dst->annotations[dst->num_entries].orig = {};
+        ++dst->num_entries;
+    }
+    else
+    {
+        _c4err("parse error: too many tags/anchors");
+    }
 }
 
 template<class EventHandler>
 void ParseEngine<EventHandler>::_add_annotation(Annotation *C4_RESTRICT dst, csubstr str, size_t indentation, size_t line)
 {
     _c4dbgpf("store annotation[{}]: '{}' indentation={} line={}", dst->num_entries, maybe_null_str_(str), indentation, line);
-    RYML_ASSERT_PARSE_CB_(m_evt_handler->m_stack.m_callbacks, dst->num_entries < C4_COUNTOF(dst->annotations), m_evt_handler->m_curr->pos); // NOLINT(bugprone-sizeof-expression)
-    if C4_UNLIKELY(dst->num_entries && dst->annotations[0].line == line)
+    if C4_LIKELY ((dst->num_entries < RYML_NUMANNOT_)
+        && !(dst->num_entries && dst->annotations[0].line == line))
     {
-        _c4err("parse error");
+        dst->annotations[dst->num_entries].str = str;
+        dst->annotations[dst->num_entries].indentation = indentation;
+        dst->annotations[dst->num_entries].line = line;
+        dst->annotations[dst->num_entries].orig = {};
+        ++dst->num_entries;
     }
-    dst->annotations[dst->num_entries].str = str;
-    dst->annotations[dst->num_entries].indentation = indentation;
-    dst->annotations[dst->num_entries].line = line;
-    dst->annotations[dst->num_entries].orig = {};
-    ++dst->num_entries;
+    else
+    {
+        _c4err("parse error: too many tags/anchors");
+    }
 }
 
 template<class EventHandler>
 void ParseEngine<EventHandler>::_add_annotation(Annotation *C4_RESTRICT dst, csubstr str, size_t indentation, size_t line, csubstr orig)
 {
     _c4dbgpf("store annotation[{}]: '{}'->'{}' indentation={} line={}", dst->num_entries, orig, maybe_null_str_(str), indentation, line);
-    RYML_ASSERT_PARSE_CB_(m_evt_handler->m_stack.m_callbacks, dst->num_entries < C4_COUNTOF(dst->annotations), m_evt_handler->m_curr->pos); // NOLINT(bugprone-sizeof-expression)
-    if C4_UNLIKELY(dst->num_entries && dst->annotations[0].line == line)
+    if C4_LIKELY ((dst->num_entries < RYML_NUMANNOT_)
+        && !(dst->num_entries && dst->annotations[0].line == line))
     {
-        _c4err("parse error");
+        dst->annotations[dst->num_entries].str = str;
+        dst->annotations[dst->num_entries].indentation = indentation;
+        dst->annotations[dst->num_entries].line = line;
+        dst->annotations[dst->num_entries].orig = orig;
+        ++dst->num_entries;
     }
-    dst->annotations[dst->num_entries].str = str;
-    dst->annotations[dst->num_entries].indentation = indentation;
-    dst->annotations[dst->num_entries].line = line;
-    dst->annotations[dst->num_entries].orig = orig;
-    ++dst->num_entries;
+    else
+    {
+        _c4err("parse error: too many tags/anchors");
+    }
 }
 
 template<class EventHandler>
@@ -4384,19 +4392,6 @@ bool ParseEngine<EventHandler>::_handle_annotations_before_unexpected_flow_token
     if(!(m_pending_tags.num_entries | m_pending_anchors.num_entries))
         return false;
     _c4dbgpf("handle_annotations_before_unexpected_flow_comma_rkey, node={}", m_evt_handler->m_curr->node_id);
-    if(m_pending_tags.num_entries)
-    {
-        _c4dbgpf("handle_annotations_before_unexpected_flow_comma_rkey, #tags={}", m_pending_tags.num_entries);
-        if C4_LIKELY(m_pending_tags.num_entries == 1)
-        {
-             m_evt_handler->set_key_tag(m_pending_tags.annotations[0].str);
-            _clear_annotations(&m_pending_tags);
-        }
-        else
-        {
-            _c4err("too many tags");
-        }
-    }
     if(m_pending_anchors.num_entries)
     {
         _c4dbgpf("handle_annotations_before_unexpected_flow_comma, #anchors={}", m_pending_tags.num_entries);
@@ -4410,6 +4405,19 @@ bool ParseEngine<EventHandler>::_handle_annotations_before_unexpected_flow_token
             _c4err("too many anchors");
         }
     }
+    if(m_pending_tags.num_entries)
+    {
+        _c4dbgpf("handle_annotations_before_unexpected_flow_comma_rkey, #tags={}", m_pending_tags.num_entries);
+        if C4_LIKELY(m_pending_tags.num_entries == 1)
+        {
+             m_evt_handler->set_key_tag(m_pending_tags.annotations[0].str);
+            _clear_annotations(&m_pending_tags);
+        }
+        else
+        {
+            _c4err("too many tags");
+        }
+    }
     m_evt_handler->set_key_scalar_plain_empty();
     m_evt_handler->set_val_scalar_plain_empty();
     return true;
@@ -4419,19 +4427,6 @@ template<class EventHandler>
 void ParseEngine<EventHandler>::_handle_annotations_before_blck_key_scalar()
 {
     _c4dbgpf("annotations_before_blck_key_scalar, node={}", m_evt_handler->m_curr->node_id);
-    if(m_pending_tags.num_entries)
-    {
-        _c4dbgpf("annotations_before_blck_key_scalar, #tags={}", m_pending_tags.num_entries);
-        if C4_LIKELY(m_pending_tags.num_entries == 1)
-        {
-             m_evt_handler->set_key_tag(m_pending_tags.annotations[0].str);
-            _clear_annotations(&m_pending_tags);
-        }
-        else
-        {
-            _c4err("too many tags"); // LCOV_EXCL_LINE
-        }
-    }
     if(m_pending_anchors.num_entries)
     {
         _c4dbgpf("annotations_before_blck_key_scalar, #anchors={}", m_pending_anchors.num_entries);
@@ -4445,25 +4440,25 @@ void ParseEngine<EventHandler>::_handle_annotations_before_blck_key_scalar()
             _c4err("too many anchors"); // LCOV_EXCL_LINE
         }
     }
+    if(m_pending_tags.num_entries)
+    {
+        _c4dbgpf("annotations_before_blck_key_scalar, #tags={}", m_pending_tags.num_entries);
+        if C4_LIKELY(m_pending_tags.num_entries == 1)
+        {
+             m_evt_handler->set_key_tag(m_pending_tags.annotations[0].str);
+            _clear_annotations(&m_pending_tags);
+        }
+        else
+        {
+            _c4err("too many tags"); // LCOV_EXCL_LINE
+        }
+    }
 }
 
 template<class EventHandler>
 void ParseEngine<EventHandler>::_handle_annotations_before_blck_val_scalar()
 {
     _c4dbgpf("annotations_before_blck_val_scalar, node={}", m_evt_handler->m_curr->node_id);
-    if(m_pending_tags.num_entries)
-    {
-        _c4dbgpf("annotations_before_blck_val_scalar, #tags={}", m_pending_tags.num_entries);
-        if C4_LIKELY(m_pending_tags.num_entries == 1)
-        {
-             m_evt_handler->set_val_tag(m_pending_tags.annotations[0].str);
-            _clear_annotations(&m_pending_tags);
-        }
-        else
-        {
-            _c4err("too many tags");
-        }
-    }
     if(m_pending_anchors.num_entries)
     {
         _c4dbgpf("annotations_before_blck_val_scalar, #anchors={}", m_pending_anchors.num_entries);
@@ -4477,28 +4472,25 @@ void ParseEngine<EventHandler>::_handle_annotations_before_blck_val_scalar()
             _c4err("too many anchors");
         }
     }
+    if(m_pending_tags.num_entries)
+    {
+        _c4dbgpf("annotations_before_blck_val_scalar, #tags={}", m_pending_tags.num_entries);
+        if C4_LIKELY(m_pending_tags.num_entries == 1)
+        {
+             m_evt_handler->set_val_tag(m_pending_tags.annotations[0].str);
+            _clear_annotations(&m_pending_tags);
+        }
+        else
+        {
+            _c4err("too many tags");
+        }
+    }
 }
 
 template<class EventHandler>
 void ParseEngine<EventHandler>::_handle_annotations_before_start_mapblck(size_t current_line)
 {
     _c4dbgpf("annotations_before_start_mapblck, current_line={}", current_line);
-    if(m_pending_tags.num_entries == 2)
-    {
-        _c4dbgp("2 tags, setting entry 0");
-        m_evt_handler->set_val_tag(m_pending_tags.annotations[0].str);
-    }
-    else if(m_pending_tags.num_entries == 1)
-    {
-        _c4dbgpf("1 tag. line={}, curr={}", m_pending_tags.annotations[0].line, current_line);
-        if(m_pending_tags.annotations[0].line < current_line)
-        {
-            _c4dbgp("...tag is for the map. setting it.");
-             m_evt_handler->set_val_tag(m_pending_tags.annotations[0].str);
-            _clear_annotations(&m_pending_tags);
-        }
-    }
-    //
     if(m_pending_anchors.num_entries == 2)
     {
         _c4dbgp("2 anchors, setting entry 0");
@@ -4514,28 +4506,28 @@ void ParseEngine<EventHandler>::_handle_annotations_before_start_mapblck(size_t 
             _clear_annotations(&m_pending_anchors);
         }
     }
+    //
+    if(m_pending_tags.num_entries == 2)
+    {
+        _c4dbgp("2 tags, setting entry 0");
+        m_evt_handler->set_val_tag(m_pending_tags.annotations[0].str);
+    }
+    else if(m_pending_tags.num_entries == 1)
+    {
+        _c4dbgpf("1 tag. line={}, curr={}", m_pending_tags.annotations[0].line, current_line);
+        if(m_pending_tags.annotations[0].line < current_line)
+        {
+            _c4dbgp("...tag is for the map. setting it.");
+             m_evt_handler->set_val_tag(m_pending_tags.annotations[0].str);
+            _clear_annotations(&m_pending_tags);
+        }
+    }
 }
 
 template<class EventHandler>
 void ParseEngine<EventHandler>::_handle_annotations_before_start_mapblck_as_key()
 {
     _c4dbgp("annotations_before_start_mapblck_as_key");
-    switch(m_pending_tags.num_entries)
-    {
-    case 1u:
-        _c4dbgpf("annotations_after_start_mapblck_as_key: 1 tag={} line={} currline=", prs_(m_pending_tags.annotations[0].str), m_pending_tags.annotations[0].line, m_evt_handler->m_curr->pos.line);
-        if(m_pending_tags.annotations[0].line != m_evt_handler->m_curr->pos.line)
-        {
-            _c4dbgp("annotations_after_start_mapblck_as_key: is map tag");
-            m_evt_handler->set_key_tag(m_pending_tags.annotations[0].str);
-            _clear_annotations(&m_pending_tags);
-        }
-        break;
-    case 2u:
-        _c4dbgpf("annotations_after_start_mapblck_as_key: 2 tags: {} -> {}", prs_(m_pending_tags.annotations[0].str), prs_(m_pending_tags.annotations[1].str));
-         m_evt_handler->set_key_tag(m_pending_tags.annotations[0].str);
-        break;
-    }
     switch(m_pending_anchors.num_entries)
     {
     case 1u:
@@ -4552,6 +4544,22 @@ void ParseEngine<EventHandler>::_handle_annotations_before_start_mapblck_as_key(
         m_evt_handler->set_key_anchor(m_pending_anchors.annotations[0].str);
         break;
     }
+    switch(m_pending_tags.num_entries)
+    {
+    case 1u:
+        _c4dbgpf("annotations_after_start_mapblck_as_key: 1 tag={} line={} currline=", prs_(m_pending_tags.annotations[0].str), m_pending_tags.annotations[0].line, m_evt_handler->m_curr->pos.line);
+        if(m_pending_tags.annotations[0].line != m_evt_handler->m_curr->pos.line)
+        {
+            _c4dbgp("annotations_after_start_mapblck_as_key: is map tag");
+            m_evt_handler->set_key_tag(m_pending_tags.annotations[0].str);
+            _clear_annotations(&m_pending_tags);
+        }
+        break;
+    case 2u:
+        _c4dbgpf("annotations_after_start_mapblck_as_key: 2 tags: {} -> {}", prs_(m_pending_tags.annotations[0].str), prs_(m_pending_tags.annotations[1].str));
+         m_evt_handler->set_key_tag(m_pending_tags.annotations[0].str);
+        break;
+    }
 }
 
 template<class EventHandler>
@@ -4563,19 +4571,6 @@ void ParseEngine<EventHandler>::_handle_annotations_and_indentation_after_start_
     if(m_pending_anchors.num_entries || m_pending_tags.num_entries)
     {
         key_indentation = _select_indentation_from_annotations(key_indentation, key_line);
-        switch(m_pending_tags.num_entries)
-        {
-        case 1u:
-            _c4dbgpf("annotations_after_start_mapblck: 1 tag: {}", prs_(m_pending_tags.annotations[0].str));
-             m_evt_handler->set_key_tag(m_pending_tags.annotations[0].str);
-            _clear_annotations(&m_pending_tags);
-            break;
-        case 2u:
-            _c4dbgpf("annotations_after_start_mapblck: 2 tags: {} -> {}", prs_(m_pending_tags.annotations[0].str), prs_(m_pending_tags.annotations[1].str));
-             m_evt_handler->set_key_tag(m_pending_tags.annotations[1].str);
-            _clear_annotations(&m_pending_tags);
-            break;
-        }
         switch(m_pending_anchors.num_entries)
         {
         case 1u:
@@ -4587,6 +4582,19 @@ void ParseEngine<EventHandler>::_handle_annotations_and_indentation_after_start_
             _c4dbgpf("annotations_after_start_mapblck: 2 anchors: {} -> {}", m_pending_anchors.annotations[0].str, m_pending_anchors.annotations[1].str);
             m_evt_handler->set_key_anchor(m_pending_anchors.annotations[1].str);
             _clear_annotations(&m_pending_anchors);
+            break;
+        }
+        switch(m_pending_tags.num_entries)
+        {
+        case 1u:
+            _c4dbgpf("annotations_after_start_mapblck: 1 tag: {}", prs_(m_pending_tags.annotations[0].str));
+             m_evt_handler->set_key_tag(m_pending_tags.annotations[0].str);
+            _clear_annotations(&m_pending_tags);
+            break;
+        case 2u:
+            _c4dbgpf("annotations_after_start_mapblck: 2 tags: {} -> {}", prs_(m_pending_tags.annotations[0].str), prs_(m_pending_tags.annotations[1].str));
+             m_evt_handler->set_key_tag(m_pending_tags.annotations[1].str);
+            _clear_annotations(&m_pending_tags);
             break;
         }
     }
@@ -6816,6 +6824,9 @@ mapblck_start:
                 _c4dbgp("mapblck[RKEY]: end doc");
                 _end_doc_suddenly();
                 _line_progressed(3);
+                #if defined(__GNUC__) && (__GNUC__ == 13) && (C4_WORDSIZE == 4) && (C4_CPP >= 20)
+                C4_DONT_OPTIMIZE(m_evt_handler->m_curr->line_contents.rem);
+                #endif
                 _maybe_skip_whitespace_tokens();
                 _check_doc_end_tokens();
                 goto mapblck_finish;
@@ -7552,7 +7563,7 @@ bool ParseEngine<EventHandler>::_handle_map_block_qmrk()
     }
     else
     {
-        _c4err("parse error");
+        _c4err("parse error"); // LCOV_EXCL_LINE
     }
     return true; // continue in mapblck
 }
@@ -7614,6 +7625,9 @@ bool ParseEngine<EventHandler>::_handle_map_block_rkcl()
     }
     else if(first == '?')
     {
+        _c4dbgp("mapblck[RKCL]: got '?'");
+        if C4_UNLIKELY(!m_evt_handler->m_curr->at_first_token())
+            _c4err("parse error");
         _c4dbgp("mapblck[RKCL]: got '?'. val was empty");
         m_evt_handler->set_val_scalar_plain_empty();
         m_evt_handler->add_sibling();
@@ -7634,7 +7648,10 @@ bool ParseEngine<EventHandler>::_handle_map_block_rkcl()
     }
     else if(first == '-')
     {
-        if(m_evt_handler->m_curr->indref == 0 || m_evt_handler->m_curr->line_contents.indentation == 0 || _is_doc_begin_token(m_evt_handler->m_curr->line_contents.rem))
+        _c4dbgp("mapblck[RKCL]: maybe start doc?");
+        if C4_LIKELY (m_evt_handler->m_curr->line_contents.indentation == 0
+                      && _is_doc_begin_token(m_evt_handler->m_curr->line_contents.rem)
+                      && m_evt_handler->m_curr->at_first_token())
         {
             _c4dbgp("mapblck[RKCL]: end+start doc");
             RYML_CHECK_PARSE_CB_(m_evt_handler->m_stack.m_callbacks, _is_doc_begin_token(m_evt_handler->m_curr->line_contents.rem), m_evt_handler->m_curr->pos);
@@ -7651,8 +7668,9 @@ bool ParseEngine<EventHandler>::_handle_map_block_rkcl()
     else if(first == '.')
     {
         _c4dbgp("mapblck[RKCL]: maybe end doc?");
-        csubstr rs = m_evt_handler->m_curr->line_contents.rem.sub(1);
-        if(rs == ".." || rs.begins_with(".. "))
+        if C4_LIKELY (m_evt_handler->m_curr->line_contents.indentation == 0
+                      && _is_doc_end_token(m_evt_handler->m_curr->line_contents.rem)
+                      && m_evt_handler->m_curr->at_first_token())
         {
             _c4dbgp("mapblck[RKCL]: end+start doc");
             _end_doc_suddenly();
@@ -7669,11 +7687,18 @@ bool ParseEngine<EventHandler>::_handle_map_block_rkcl()
     else/* if(m_was_inside_qmrk) */
     {
         _c4dbgp("mapblck[RKCL]: missing :");
-        if C4_UNLIKELY(!m_evt_handler->m_curr->indentation_eq())
-            _c4err("parse error"); // LCOV_EXCL_LINE
-        m_evt_handler->set_val_scalar_plain_empty();
-        m_evt_handler->add_sibling();
-        addrem_flags(RKEY, RKCL);
+        RYML_ASSERT_PARSE_CB_(m_evt_handler->m_stack.m_callbacks, first != ' ' && first != '\t', m_evt_handler->m_curr->pos);
+        if C4_LIKELY (m_evt_handler->m_curr->indentation_eq()
+                      && m_evt_handler->m_curr->at_first_token())
+        {
+            m_evt_handler->set_val_scalar_plain_empty();
+            m_evt_handler->add_sibling();
+            addrem_flags(RKEY, RKCL);
+        }
+        else
+        {
+            _c4err("parse error");
+        }
     }
     return true;
 }
@@ -7848,7 +7873,7 @@ void ParseEngine<EventHandler>::_handle_unk()
                 {
                     _c4dbgp("runk: rtop: ignore end doc");
                 }
-                addrem_flags(NDOC|RUNK, RDOC);
+                addrem_flags(NDOC|RUNK|SDDN, RDOC);
                 _line_progressed(3u);
                 _maybe_skip_whitespace_tokens();
                 _check_doc_end_tokens();
@@ -8036,6 +8061,7 @@ void ParseEngine<EventHandler>::_handle_unk()
         csubstr tag_orig;
         csubstr tag = _scan_tag(&tag_orig);
         _c4dbgpf("runk: val tag! {}", prs_(tag));
+        _handle_unk_begin_doc();
         // we need to buffer the tags, as there may be two
         // consecutive tags in here
         const size_t indentation = m_evt_handler->m_curr->line_contents.current_col(m_evt_handler->m_curr->line_contents.rem);
@@ -8933,7 +8959,7 @@ void ParseEngine<EventHandler>::parse_in_place_ev(csubstr filename, substr src)
 } // namespace yml
 } // namespace c4
 
-// NOLINTEND(hicpp-signed-bitwise,cppcoreguidelines-avoid-goto,hicpp-avoid-goto,hicpp-multiway-paths-covered,modernize-avoid-c-style-cast)
+// NOLINTEND(*-signed-bitwise,*-avoid-goto,hicpp-multiway-paths-covered,modernize-avoid-c-style-cast,*-unhandled-code-path)
 
 #undef _c4dbgnextline
 #undef _c4assert

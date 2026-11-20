@@ -38,7 +38,13 @@ c4_add_library(ryml
         ryml.natvis
         c4/yml/detail/checks.hpp
         c4/yml/detail/dbgprint.hpp
+        c4/yml/detail/emit_scalar.hpp
+        c4/yml/detail/known_keys.hpp
+        c4/yml/detail/known_keys.cpp
+        c4/yml/detail/lookup_anchor.hpp
+        c4/yml/detail/lower_bound.hpp
         c4/yml/detail/print.hpp
+        c4/yml/detail/small_map.hpp
         c4/yml/detail/stack.hpp
         c4/yml/common.hpp
         c4/yml/common.cpp
@@ -169,12 +175,20 @@ if(RYML_EXTRA_ALL
     # test the extra facilities as well
     if(RYML_EXTRA_INTS OR RYML_EXTRA_ALL)
         list(APPEND RYML_EXTRA_SRC
-            "${CMAKE_CURRENT_LIST_DIR}/src_extra/c4/yml/extra/event_handler_ints.cpp"
+            "${CMAKE_CURRENT_LIST_DIR}/src_extra/c4/yml/extra/emitter_ints.def.hpp"
+            "${CMAKE_CURRENT_LIST_DIR}/src_extra/c4/yml/extra/emitter_ints.hpp"
             "${CMAKE_CURRENT_LIST_DIR}/src_extra/c4/yml/extra/event_handler_ints.hpp"
+            "${CMAKE_CURRENT_LIST_DIR}/src_extra/c4/yml/extra/event_handler_ints_no_resize.cpp"
+            "${CMAKE_CURRENT_LIST_DIR}/src_extra/c4/yml/extra/event_handler_ints_resize.cpp"
+            "${CMAKE_CURRENT_LIST_DIR}/src_extra/c4/yml/extra/event_ints.cpp"
+            "${CMAKE_CURRENT_LIST_DIR}/src_extra/c4/yml/extra/event_ints.hpp"
+            "${CMAKE_CURRENT_LIST_DIR}/src_extra/c4/yml/extra/ints_reference_resolver.cpp"
+            "${CMAKE_CURRENT_LIST_DIR}/src_extra/c4/yml/extra/ints_reference_resolver.hpp"
         )
     endif()
     if(RYML_EXTRA_INTS_UTILS OR RYML_EXTRA_ALL)
         list(APPEND RYML_EXTRA_SRC
+            "${CMAKE_CURRENT_LIST_DIR}/src_extra/c4/yml/extra/ints_format.hpp"
             "${CMAKE_CURRENT_LIST_DIR}/src_extra/c4/yml/extra/ints_utils.cpp"
             "${CMAKE_CURRENT_LIST_DIR}/src_extra/c4/yml/extra/ints_utils.hpp"
         )
@@ -230,6 +244,7 @@ add_custom_target(ryml-uninstall
 
 
 option(RYML_SAVE_TEST_YAML "(dev) save all the parsed yaml while testing" OFF)
+option(RYML_ENABLE_EXPORT_TEST "(dev) export test symbols even if tests are not built" OFF)
 if(RYML_SAVE_TEST_YAML)
     target_compile_definitions(ryml PUBLIC RYML_SAVE_TEST_YAML)
     set(RYML_FUZZ_TEST  OFF CACHE BOOL "" FORCE)
@@ -242,6 +257,10 @@ function(ryml_maybe_dump_test_yaml target)
         target_link_libraries(${target} PRIVATE c4fs gtest)
     endif()
 endfunction()
+
+if(RYML_BUILD_TESTS OR RYML_ENABLE_EXPORT_TEST)
+    target_compile_definitions(ryml PUBLIC RYML_ENABLE_EXPORT_TEST)
+endif()
 
 if(CMAKE_CXX_COMPILER_ID STREQUAL Clang)
     option(RYML_FUZZ_DRIVERS "Build fuzz driver binaries (other than unit tests from RYML_TEST_FUZZ)." OFF)

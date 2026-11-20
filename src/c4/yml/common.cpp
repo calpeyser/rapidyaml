@@ -9,6 +9,13 @@
 #ifdef _RYML_EXCEPTIONS
 #       include <stdexcept>
 #endif
+#if defined(C4_WIN)
+#   include "c4/windows.hpp"
+#elif defined(C4_UNIX) || defined(C4_LINUX) || defined(C4_MACOS) || defined(C4_IOS)
+// same condition as c4core's include of unistd.h, because the
+// amalgamation keeps only the first include of each header
+#   include <unistd.h>
+#endif
 
 
 namespace c4 {
@@ -110,14 +117,15 @@ Callbacks::Callbacks() noexcept
     m_free(free_impl),
     m_error_basic(error_basic_impl),
     m_error_parse(error_parse_impl),
-    m_error_visit(error_visit_impl)
+    m_error_visit(error_visit_impl),
     #else
     m_allocate(nullptr),
     m_free(nullptr),
     m_error_basic(nullptr),
     m_error_parse(nullptr),
-    m_error_visit(nullptr)
+    m_error_visit(nullptr),
     #endif
+    m_make_resident(nullptr)
 {
 }
 
@@ -129,14 +137,15 @@ Callbacks::Callbacks(void *user_data, pfn_allocate alloc_, pfn_free free_, pfn_e
     m_free(free_ ? free_ : free_impl),
     m_error_basic(error_basic_ ? error_basic_ : error_basic_impl),
     m_error_parse(error_parse_impl),
-    m_error_visit(error_visit_impl)
+    m_error_visit(error_visit_impl),
     #else
     m_allocate(alloc_),
     m_free(free_),
     m_error_basic(error_basic_),
     m_error_parse(nullptr),
-    m_error_visit(nullptr)
+    m_error_visit(nullptr),
     #endif
+    m_make_resident(nullptr)
 {
 }
 
@@ -190,6 +199,39 @@ Callbacks& Callbacks::set_error_visit(pfn_error_visit error_visit)
     m_error_visit = m_error_visit ? m_error_visit : error_visit_impl;
     #endif
     return *this;
+}
+
+Callbacks& Callbacks::set_make_resident(pfn_make_resident make_resident_)
+{
+    m_make_resident = make_resident_;
+    return *this;
+}
+
+
+namespace {
+size_t page_size_() noexcept
+{
+    #if defined(C4_WIN)
+    SYSTEM_INFO info;
+    GetSystemInfo(&info);
+    return static_cast<size_t>(info.dwPageSize);
+    #elif defined(C4_UNIX) || defined(C4_LINUX) || defined(C4_MACOS) || defined(C4_IOS)
+    const auto sz = sysconf(_SC_PAGESIZE);
+    return sz > 0 ? static_cast<size_t>(sz) : 0u;
+    #else
+    return 0u;
+    #endif
+}
+} // namespace
+
+void make_resident(void *mem, size_t len, void * /*user_data*/)
+{
+    static const size_t page = page_size_();
+    if(!page || !mem) // no page size: do nothing
+        return;
+    char *bytes = static_cast<char*>(mem);
+    for(size_t i = 0; i < len; i += page)
+        bytes[i] = 0;
 }
 
 
@@ -278,8 +320,39 @@ ExceptionVisit::ExceptionVisit(csubstr msg_, ErrorDataVisit const& errdata_) noe
 }
 #endif // RYML_WITH_EXCEPTIONS_
 
-
 namespace detail {
+
+void* grow_buf_raw(void* buf, size_t len, size_t cap, size_t next_cap, Callbacks const& cb)
+{
+    RYML_ASSERT_BASIC_CB_(cb, next_cap > cap);
+    RYML_ASSERT_BASIC_CB_(cb, len <= cap);
+    void *ptr = RYML_CB_ALLOC_HINT_(cb, uint8_t, next_cap, buf);
+    if C4_LIKELY(!!ptr)
+    {
+        if(len)
+            memcpy(ptr, buf, len);
+        RYML_CB_FREE_(cb, buf, uint8_t, cap);
+        return ptr;
+    }
+    RYML_ERR_BASIC_CB_(cb, "out of memory"); // LCOV_EXCL_LINE
+}
+substr resize(substr buf, size_t nextlen, Callbacks const& cb)
+{
+    if(nextlen > buf.len)
+    {
+        buf.str = grow_buf(buf.str, buf.len, nextlen, cb);
+        buf.len = nextlen;
+    }
+    return buf;
+}
+substr destroy(substr buf, Callbacks const& cb)
+{
+    if(buf.len)
+        cb.m_free(buf.str, buf.len, cb.m_user_data);
+    return {};
+}
+
+
 RYML_EXPORT csubstr _get_text_region(csubstr text, size_t pos, size_t num_lines_before, size_t num_lines_after)
 {
     if(pos > text.len)

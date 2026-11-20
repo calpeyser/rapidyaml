@@ -1,22 +1,64 @@
 #include "test_lib/test_case.hpp"
-#include "test_lib/test_events_ints_helpers.hpp"
+#include "test_lib/test_helpers_ints.hpp"
+
+#ifndef C4_YML_EXTRA_EVENT_HANDLER_INTS_HPP_
 #include <c4/yml/extra/event_handler_ints.hpp>
+#endif
+#ifndef C4_YML_EXTRA_INTS_FORMAT_HPP_
+#include <c4/yml/extra/ints_format.hpp>
+#endif
 
 RYML_DEFINE_TEST_MAIN()
 
-// NOLINTBEGIN(hicpp-signed-bitwise)
+// NOLINTBEGIN(*-signed-bitwise)
 
 namespace c4 {
 namespace yml {
 namespace extra {
 
 
+// ensure the ievt flags work despite being signed
+static_assert((ievt::MASK & ievt::BSTR) == ievt::BSTR, "overflow?");
+static_assert((ievt::MASK & ievt::ESTR) == ievt::ESTR, "overflow?");
+static_assert((ievt::MASK & ievt::BDOC) == ievt::BDOC, "overflow?");
+static_assert((ievt::MASK & ievt::EDOC) == ievt::EDOC, "overflow?");
+static_assert((ievt::MASK & ievt::BMAP) == ievt::BMAP, "overflow?");
+static_assert((ievt::MASK & ievt::EMAP) == ievt::EMAP, "overflow?");
+static_assert((ievt::MASK & ievt::BSEQ) == ievt::BSEQ, "overflow?");
+static_assert((ievt::MASK & ievt::ESEQ) == ievt::ESEQ, "overflow?");
+static_assert((ievt::MASK & ievt::ANCH) == ievt::ANCH, "overflow?");
+static_assert((ievt::MASK & ievt::ALIA) == ievt::ALIA, "overflow?");
+static_assert((ievt::MASK & ievt::TAG_) == ievt::TAG_, "overflow?");
+static_assert((ievt::MASK & ievt::PLAI) == ievt::PLAI, "overflow?");
+static_assert((ievt::MASK & ievt::SQUO) == ievt::SQUO, "overflow?");
+static_assert((ievt::MASK & ievt::DQUO) == ievt::DQUO, "overflow?");
+static_assert((ievt::MASK & ievt::LITL) == ievt::LITL, "overflow?");
+static_assert((ievt::MASK & ievt::FOLD) == ievt::FOLD, "overflow?");
+static_assert((ievt::MASK & ievt::FLOW) == ievt::FLOW, "overflow?");
+static_assert((ievt::MASK & ievt::EXPL) == ievt::EXPL, "overflow?");
+static_assert((ievt::MASK & ievt::UNFL) == ievt::UNFL, "overflow?");
+static_assert((ievt::MASK & ievt::KEY_) == ievt::KEY_, "overflow?");
+static_assert((ievt::MASK & ievt::VAL_) == ievt::VAL_, "overflow?");
+static_assert((ievt::MASK & ievt::YAML) == ievt::YAML, "overflow?");
+static_assert((ievt::MASK & ievt::TAGH) == ievt::TAGH, "overflow?");
+static_assert((ievt::MASK & ievt::TAGP) == ievt::TAGP, "overflow?");
+static_assert((ievt::MASK & ievt::AREN) == ievt::AREN, "overflow?");
+static_assert((ievt::MASK & ievt::WSTR) == ievt::WSTR, "overflow?");
+static_assert((ievt::MASK & ievt::RREF) == ievt::RREF, "overflow?");
+static_assert((ievt::MASK & ievt::JUMP) == ievt::JUMP, "overflow?");
+static_assert((ievt::MASK & ievt::PEX2) == ievt::PEX2, "overflow?");
+static_assert((ievt::MASK & ievt::FSL_) == ievt::FSL_, "overflow?");
+static_assert((ievt::MASK & ievt::FML1) == ievt::FML1, "overflow?");
+static_assert((ievt::MASK & ievt::FMLN) == ievt::FMLN, "overflow?");
+static_assert((ievt::MASK & ievt::FMLX) == ievt::FMLX, "overflow?");
+static_assert((ievt::MASK & ievt::LAST) == ievt::LAST, "overflow?");
+
 TEST(flags, to_chars)
 {
     using namespace ievt;
     char buf1_[1]; substr buf1 = buf1_;
     char buf_[200]; substr buf = buf_;
-#define _(flags, str)                                       \
+    #define _(flags, str)                                   \
     {                                                       \
         ievt::evt_bits flags_{flags};                       \
         csubstr actual(str);                                \
@@ -29,12 +71,533 @@ TEST(flags, to_chars)
         ASSERT_LE(r.len, buf.len);                          \
         EXPECT_EQ(r, actual);                               \
     }
-    _(0, "NONE");
+    _(0, "0");
     _(KEY_, "KEY_");
     _(VAL_, "VAL_");
     _(KEY_|VAL_, "KEY_|VAL_");
+    #undef _
 }
 
+
+static std::string to_str(ievt::TestBuffers const& ints, bool indent, bool as_c_data)
+{
+    std::string result;
+    auto doit = [&](WriterBuf &writer){
+        if(as_c_data)
+            ievt::format_ints_as_c_data(writer, ints.src, ints.arena, ints.evts.ptr, ints.evts.len, indent);
+        else
+            ievt::format_ints(writer, ints.src, ints.arena, ints.evts.ptr, ints.evts.len, indent);
+    };
+    {
+        WriterBuf writer(to_substr(result));
+        doit(writer);
+        RYML_ASSERT_BASIC_(writer.m_pos >= result.size());
+        result.resize(writer.m_pos);
+    }
+    {
+        WriterBuf writer(to_substr(result));
+        doit(writer);
+        RYML_ASSERT_BASIC_(writer.m_pos <= result.size());
+    }
+    return result;
+}
+static void test_format(ievt::TestBuffers const& ints,
+                        std::string const& expected_indented,
+                        std::string const& expected_unindented,
+                        std::string const& expected_cdata_indented,
+                        std::string const& expected_cdata_unindented)
+{
+    #define cmpstr(exp, actual)                                     \
+        if((exp) != (actual))                                       \
+                     {                                              \
+            EXPECT_EQ(exp, actual);                                 \
+            printf("------------------------\n%s:%d: %s:\n%s\n",    \
+                   __FILE__, __LINE__, #exp, (exp).c_str());        \
+            printf("------------------------\n%s:%d: %s:\n%s\n",    \
+                   __FILE__, __LINE__, #actual, (actual).c_str());  \
+        }
+    {
+        std::string actual_indented = to_str(ints, true, false);
+        std::string actual_unindented = to_str(ints, false, false);
+        cmpstr(expected_indented, actual_indented);
+        cmpstr(expected_unindented, actual_unindented);
+    }
+    {
+        std::string actual_cdata_indented = to_str(ints, true, true);
+        std::string actual_cdata_unindented = to_str(ints, false, true);
+        cmpstr(expected_cdata_indented, actual_cdata_indented);
+        cmpstr(expected_cdata_unindented, actual_cdata_unindented);
+    }
+    #undef cmpstr
+}
+
+
+TEST(ints_resolve, emit_empty)
+{
+    ievt::TestBuffers ints;
+    ASSERT_EQ(ints.evts.ptr, nullptr);
+    ASSERT_EQ(ints.evts.len, 0);
+    EXPECT_EQ("", ints.emitrs_yaml<std::string>());
+}
+
+TEST(ints, format_empty)
+{
+    ievt::TestBuffers ints;
+    ASSERT_EQ(ints.evts.ptr, nullptr);
+    ASSERT_EQ(ints.evts.len, 0);
+    SCOPED_CALL(test_format, (ints, "", "", "", ""));
+}
+TEST(ints, format_with_rref)
+{
+    std::string src = ""
+        "l0: &l0 [x,x]\n"
+        "l1: &l1 [*l0,*l0]\n"
+        "l2: &l2 [*l1,*l1]\n"
+        "";
+    ievt::TestBuffers ints;
+    parse_ints(to_substr(src), &ints);
+    SCOPED_CALL(test_format,
+                (ints,
+                 ""
+                 "[0][0] BSTR(0x84)\n"
+                 "[1][1]   BDOC(0x44)\n"
+                 "[2][2]     VAL_|BMAP|BLCK(0x26)\n"
+                 "[3][3]       KEY_|SCLR|PLAI(0x8101): 0 [2]~~~l0~~~\n"
+                 "[4][6]       VAL_|ANCH|PEX2(0x4000402): 5 [2]~~~l0~~~\n"
+                 "[5][9]       VAL_|BSEQ|FLOW|FSL_|PEX2(0xc200016)\n"
+                 "[6][10]         VAL_|SCLR|PLAI(0x8102): 9 [1]~~~x~~~\n"
+                 "[7][13]         VAL_|SCLR|PLAI|PEX2(0x4008102): 11 [1]~~~x~~~\n"
+                 "[8][16]       ESEQ|PEX2(0x4000018)\n"
+                 "[9][17]       KEY_|SCLR|PLAI(0x8101): 14 [2]~~~l1~~~\n"
+                 "[10][20]       VAL_|ANCH|PEX2(0x4000402): 19 [2]~~~l1~~~\n"
+                 "[11][23]       VAL_|BSEQ|FLOW|FSL_|PEX2(0xc200016)\n"
+                 "[12][24]         VAL_|ALIA(0x202): 24 [2]~~~l0~~~\n"
+                 "[13][27]         VAL_|ALIA|PEX2(0x4000202): 28 [2]~~~l0~~~\n"
+                 "[14][30]       ESEQ|PEX2(0x4000018)\n"
+                 "[15][31]       KEY_|SCLR|PLAI(0x8101): 32 [2]~~~l2~~~\n"
+                 "[16][34]       VAL_|ANCH|PEX2(0x4000402): 37 [2]~~~l2~~~\n"
+                 "[17][37]       VAL_|BSEQ|FLOW|FSL_|PEX2(0xc200016)\n"
+                 "[18][38]         VAL_|ALIA(0x202): 42 [2]~~~l1~~~\n"
+                 "[19][41]         VAL_|ALIA|PEX2(0x4000202): 46 [2]~~~l1~~~\n"
+                 "[20][44]       ESEQ|PEX2(0x4000018)\n"
+                 "[21][45]     EMAP(0x28)\n"
+                 "[22][46]   EDOC(0x48)\n"
+                 "[23][47] ESTR(0x88)\n"
+                 "src.len=50 arena.len(unused)=0\n"
+                 "",
+                 ""
+                 "[0][0] BSTR(0x84)\n"
+                 "[1][1] BDOC(0x44)\n"
+                 "[2][2] VAL_|BMAP|BLCK(0x26)\n"
+                 "[3][3] KEY_|SCLR|PLAI(0x8101): 0 [2]~~~l0~~~\n"
+                 "[4][6] VAL_|ANCH|PEX2(0x4000402): 5 [2]~~~l0~~~\n"
+                 "[5][9] VAL_|BSEQ|FLOW|FSL_|PEX2(0xc200016)\n"
+                 "[6][10] VAL_|SCLR|PLAI(0x8102): 9 [1]~~~x~~~\n"
+                 "[7][13] VAL_|SCLR|PLAI|PEX2(0x4008102): 11 [1]~~~x~~~\n"
+                 "[8][16] ESEQ|PEX2(0x4000018)\n"
+                 "[9][17] KEY_|SCLR|PLAI(0x8101): 14 [2]~~~l1~~~\n"
+                 "[10][20] VAL_|ANCH|PEX2(0x4000402): 19 [2]~~~l1~~~\n"
+                 "[11][23] VAL_|BSEQ|FLOW|FSL_|PEX2(0xc200016)\n"
+                 "[12][24] VAL_|ALIA(0x202): 24 [2]~~~l0~~~\n"
+                 "[13][27] VAL_|ALIA|PEX2(0x4000202): 28 [2]~~~l0~~~\n"
+                 "[14][30] ESEQ|PEX2(0x4000018)\n"
+                 "[15][31] KEY_|SCLR|PLAI(0x8101): 32 [2]~~~l2~~~\n"
+                 "[16][34] VAL_|ANCH|PEX2(0x4000402): 37 [2]~~~l2~~~\n"
+                 "[17][37] VAL_|BSEQ|FLOW|FSL_|PEX2(0xc200016)\n"
+                 "[18][38] VAL_|ALIA(0x202): 42 [2]~~~l1~~~\n"
+                 "[19][41] VAL_|ALIA|PEX2(0x4000202): 46 [2]~~~l1~~~\n"
+                 "[20][44] ESEQ|PEX2(0x4000018)\n"
+                 "[21][45] EMAP(0x28)\n"
+                 "[22][46] EDOC(0x48)\n"
+                 "[23][47] ESTR(0x88)\n"
+                 "src.len=50 arena.len(unused)=0\n"
+                 "",
+                 ""
+                 "/*[0][0]*/ BSTR,\n"
+                 "/*[1][1]*/   BDOC,\n"
+                 "/*[2][2]*/     VAL_|BMAP|BLCK,\n"
+                 "/*[3][3]*/       KEY_|SCLR|PLAI, 0,2,/*l0*/\n"
+                 "/*[4][6]*/       VAL_|ANCH|PEX2, 5,2,/*l0*/\n"
+                 "/*[5][9]*/       VAL_|BSEQ|FLOW|FSL_|PEX2,\n"
+                 "/*[6][10]*/         VAL_|SCLR|PLAI, 9,1,/*x*/\n"
+                 "/*[7][13]*/         VAL_|SCLR|PLAI|PEX2, 11,1,/*x*/\n"
+                 "/*[8][16]*/       ESEQ|PEX2,\n"
+                 "/*[9][17]*/       KEY_|SCLR|PLAI, 14,2,/*l1*/\n"
+                 "/*[10][20]*/       VAL_|ANCH|PEX2, 19,2,/*l1*/\n"
+                 "/*[11][23]*/       VAL_|BSEQ|FLOW|FSL_|PEX2,\n"
+                 "/*[12][24]*/         VAL_|ALIA, 24,2,/*l0*/\n"
+                 "/*[13][27]*/         VAL_|ALIA|PEX2, 28,2,/*l0*/\n"
+                 "/*[14][30]*/       ESEQ|PEX2,\n"
+                 "/*[15][31]*/       KEY_|SCLR|PLAI, 32,2,/*l2*/\n"
+                 "/*[16][34]*/       VAL_|ANCH|PEX2, 37,2,/*l2*/\n"
+                 "/*[17][37]*/       VAL_|BSEQ|FLOW|FSL_|PEX2,\n"
+                 "/*[18][38]*/         VAL_|ALIA, 42,2,/*l1*/\n"
+                 "/*[19][41]*/         VAL_|ALIA|PEX2, 46,2,/*l1*/\n"
+                 "/*[20][44]*/       ESEQ|PEX2,\n"
+                 "/*[21][45]*/     EMAP,\n"
+                 "/*[22][46]*/   EDOC,\n"
+                 "/*[23][47]*/ ESTR,\n"
+                 "",
+                 ""
+                 "/*[0][0]*/ BSTR,\n"
+                 "/*[1][1]*/ BDOC,\n"
+                 "/*[2][2]*/ VAL_|BMAP|BLCK,\n"
+                 "/*[3][3]*/ KEY_|SCLR|PLAI, 0,2,/*l0*/\n"
+                 "/*[4][6]*/ VAL_|ANCH|PEX2, 5,2,/*l0*/\n"
+                 "/*[5][9]*/ VAL_|BSEQ|FLOW|FSL_|PEX2,\n"
+                 "/*[6][10]*/ VAL_|SCLR|PLAI, 9,1,/*x*/\n"
+                 "/*[7][13]*/ VAL_|SCLR|PLAI|PEX2, 11,1,/*x*/\n"
+                 "/*[8][16]*/ ESEQ|PEX2,\n"
+                 "/*[9][17]*/ KEY_|SCLR|PLAI, 14,2,/*l1*/\n"
+                 "/*[10][20]*/ VAL_|ANCH|PEX2, 19,2,/*l1*/\n"
+                 "/*[11][23]*/ VAL_|BSEQ|FLOW|FSL_|PEX2,\n"
+                 "/*[12][24]*/ VAL_|ALIA, 24,2,/*l0*/\n"
+                 "/*[13][27]*/ VAL_|ALIA|PEX2, 28,2,/*l0*/\n"
+                 "/*[14][30]*/ ESEQ|PEX2,\n"
+                 "/*[15][31]*/ KEY_|SCLR|PLAI, 32,2,/*l2*/\n"
+                 "/*[16][34]*/ VAL_|ANCH|PEX2, 37,2,/*l2*/\n"
+                 "/*[17][37]*/ VAL_|BSEQ|FLOW|FSL_|PEX2,\n"
+                 "/*[18][38]*/ VAL_|ALIA, 42,2,/*l1*/\n"
+                 "/*[19][41]*/ VAL_|ALIA|PEX2, 46,2,/*l1*/\n"
+                 "/*[20][44]*/ ESEQ|PEX2,\n"
+                 "/*[21][45]*/ EMAP,\n"
+                 "/*[22][46]*/ EDOC,\n"
+                 "/*[23][47]*/ ESTR,\n"
+                 ""));
+    ints.resolve();
+    SCOPED_CALL(test_format,
+                (ints,
+                 ""
+                 "[0][0] BSTR(0x84)\n"
+                 "[1][1]   BDOC(0x44)\n"
+                 "[2][2]     VAL_|BMAP|BLCK(0x26)\n"
+                 "[3][3]       KEY_|SCLR|PLAI(0x8101): 0 [2]~~~l0~~~\n"
+                 "[4][6]       PEX2,0,0,\n"
+                 "[7][9]       VAL_|BSEQ|FLOW|FSL_(0x8200016)\n"
+                 "[8][10]         VAL_|SCLR|PLAI(0x8102): 9 [1]~~~x~~~\n"
+                 "[9][13]         VAL_|SCLR|PLAI|PEX2(0x4008102): 11 [1]~~~x~~~\n"
+                 "[10][16]       ESEQ|PEX2(0x4000018)\n"
+                 "[11][17]       KEY_|SCLR|PLAI(0x8101): 14 [2]~~~l1~~~\n"
+                 "[12][20]       PEX2,0,0,\n"
+                 "[15][23]       VAL_|BSEQ|FLOW|FSL_(0x8200016)\n"
+                 "[16][24]         RREF(0x800000): 9:17\n"
+                 "[17][27]         RREF|PEX2(0x4800000): 9:17\n"
+                 "[18][30]       ESEQ|PEX2(0x4000018)\n"
+                 "[19][31]       KEY_|SCLR|PLAI(0x8101): 32 [2]~~~l2~~~\n"
+                 "[20][34]       PEX2,0,0,\n"
+                 "[23][37]       VAL_|BSEQ|FLOW|FSL_(0x8200016)\n"
+                 "[24][38]         RREF(0x800000): 23:31\n"
+                 "[25][41]         RREF|PEX2(0x4800000): 23:31\n"
+                 "[26][44]       ESEQ|PEX2(0x4000018)\n"
+                 "[27][45]     EMAP(0x28)\n"
+                 "[28][46]   EDOC(0x48)\n"
+                 "[29][47] ESTR(0x88)\n"
+                 "src.len=50 arena.len(unused)=0\n"
+                 "",
+                 ""
+                 "[0][0] BSTR(0x84)\n"
+                 "[1][1] BDOC(0x44)\n"
+                 "[2][2] VAL_|BMAP|BLCK(0x26)\n"
+                 "[3][3] KEY_|SCLR|PLAI(0x8101): 0 [2]~~~l0~~~\n"
+                 "[4][6] PEX2,0,0,\n"
+                 "[7][9] VAL_|BSEQ|FLOW|FSL_(0x8200016)\n"
+                 "[8][10] VAL_|SCLR|PLAI(0x8102): 9 [1]~~~x~~~\n"
+                 "[9][13] VAL_|SCLR|PLAI|PEX2(0x4008102): 11 [1]~~~x~~~\n"
+                 "[10][16] ESEQ|PEX2(0x4000018)\n"
+                 "[11][17] KEY_|SCLR|PLAI(0x8101): 14 [2]~~~l1~~~\n"
+                 "[12][20] PEX2,0,0,\n"
+                 "[15][23] VAL_|BSEQ|FLOW|FSL_(0x8200016)\n"
+                 "[16][24] RREF(0x800000): 9:17\n"
+                 "[17][27] RREF|PEX2(0x4800000): 9:17\n"
+                 "[18][30] ESEQ|PEX2(0x4000018)\n"
+                 "[19][31] KEY_|SCLR|PLAI(0x8101): 32 [2]~~~l2~~~\n"
+                 "[20][34] PEX2,0,0,\n"
+                 "[23][37] VAL_|BSEQ|FLOW|FSL_(0x8200016)\n"
+                 "[24][38] RREF(0x800000): 23:31\n"
+                 "[25][41] RREF|PEX2(0x4800000): 23:31\n"
+                 "[26][44] ESEQ|PEX2(0x4000018)\n"
+                 "[27][45] EMAP(0x28)\n"
+                 "[28][46] EDOC(0x48)\n"
+                 "[29][47] ESTR(0x88)\n"
+                 "src.len=50 arena.len(unused)=0\n"
+                 "",
+                 ""
+                 "/*[0][0]*/ BSTR,\n"
+                 "/*[1][1]*/   BDOC,\n"
+                 "/*[2][2]*/     VAL_|BMAP|BLCK,\n"
+                 "/*[3][3]*/       KEY_|SCLR|PLAI, 0,2,/*l0*/\n"
+                 "/*[4][6]*/       PEX2,0,0,\n"
+                 "/*[7][9]*/       VAL_|BSEQ|FLOW|FSL_,\n"
+                 "/*[8][10]*/         VAL_|SCLR|PLAI, 9,1,/*x*/\n"
+                 "/*[9][13]*/         VAL_|SCLR|PLAI|PEX2, 11,1,/*x*/\n"
+                 "/*[10][16]*/       ESEQ|PEX2,\n"
+                 "/*[11][17]*/       KEY_|SCLR|PLAI, 14,2,/*l1*/\n"
+                 "/*[12][20]*/       PEX2,0,0,\n"
+                 "/*[15][23]*/       VAL_|BSEQ|FLOW|FSL_,\n"
+                 "/*[16][24]*/         RREF,9,17,\n"
+                 "/*[17][27]*/         RREF|PEX2,9,17,\n"
+                 "/*[18][30]*/       ESEQ|PEX2,\n"
+                 "/*[19][31]*/       KEY_|SCLR|PLAI, 32,2,/*l2*/\n"
+                 "/*[20][34]*/       PEX2,0,0,\n"
+                 "/*[23][37]*/       VAL_|BSEQ|FLOW|FSL_,\n"
+                 "/*[24][38]*/         RREF,23,31,\n"
+                 "/*[25][41]*/         RREF|PEX2,23,31,\n"
+                 "/*[26][44]*/       ESEQ|PEX2,\n"
+                 "/*[27][45]*/     EMAP,\n"
+                 "/*[28][46]*/   EDOC,\n"
+                 "/*[29][47]*/ ESTR,\n"
+                 "",
+                 ""
+                 "/*[0][0]*/ BSTR,\n"
+                 "/*[1][1]*/ BDOC,\n"
+                 "/*[2][2]*/ VAL_|BMAP|BLCK,\n"
+                 "/*[3][3]*/ KEY_|SCLR|PLAI, 0,2,/*l0*/\n"
+                 "/*[4][6]*/ PEX2,0,0,\n"
+                 "/*[7][9]*/ VAL_|BSEQ|FLOW|FSL_,\n"
+                 "/*[8][10]*/ VAL_|SCLR|PLAI, 9,1,/*x*/\n"
+                 "/*[9][13]*/ VAL_|SCLR|PLAI|PEX2, 11,1,/*x*/\n"
+                 "/*[10][16]*/ ESEQ|PEX2,\n"
+                 "/*[11][17]*/ KEY_|SCLR|PLAI, 14,2,/*l1*/\n"
+                 "/*[12][20]*/ PEX2,0,0,\n"
+                 "/*[15][23]*/ VAL_|BSEQ|FLOW|FSL_,\n"
+                 "/*[16][24]*/ RREF,9,17,\n"
+                 "/*[17][27]*/ RREF|PEX2,9,17,\n"
+                 "/*[18][30]*/ ESEQ|PEX2,\n"
+                 "/*[19][31]*/ KEY_|SCLR|PLAI, 32,2,/*l2*/\n"
+                 "/*[20][34]*/ PEX2,0,0,\n"
+                 "/*[23][37]*/ VAL_|BSEQ|FLOW|FSL_,\n"
+                 "/*[24][38]*/ RREF,23,31,\n"
+                 "/*[25][41]*/ RREF|PEX2,23,31,\n"
+                 "/*[26][44]*/ ESEQ|PEX2,\n"
+                 "/*[27][45]*/ EMAP,\n"
+                 "/*[28][46]*/ EDOC,\n"
+                 "/*[29][47]*/ ESTR,\n"
+                 ""));
+}
+
+TEST(ints, format_with_arena_usage)
+{
+    std::string src = ""
+        "%TAG !m! !my-\n"
+        "--- # Bulb here\n"
+        "!m!light fluorescent\n"
+        "...\n"
+        "%TAG !m! !meta-\n"
+        "--- # Color here\n"
+        "!m!light green\n"
+        "";
+    ievt::TestBuffers ints;
+    parse_ints(to_substr(src), &ints, ParserOptions{}.resolve_tags_all(true));
+    SCOPED_CALL(test_format,
+                (ints,
+                 ""
+                 "[0][0] BSTR(0x84)\n"
+                 "[1][1]   TAGH(0x2000): 5 [3]~~~!m!~~~\n"
+                 "[2][4]   TAGP|PEX2(0x4004000): 9 [4]~~~!my-~~~\n"
+                 "[3][7]   BDOC|EXPL|PEX2(0x4200044)\n"
+                 "[4][8]     VAL_|TAG_|AREN(0x400802): 0 [11]~~~<!my-light>~~~\n"
+                 "[5][11]     VAL_|SCLR|PLAI|PEX2(0x4008102): 39 [11]~~~fluorescent~~~\n"
+                 "[6][14]   EDOC|EXPL|PEX2(0x4200048)\n"
+                 "[7][15]   TAGH(0x2000): 60 [3]~~~!m!~~~\n"
+                 "[8][18]   TAGP|PEX2(0x4004000): 64 [6]~~~!meta-~~~\n"
+                 "[9][21]   BDOC|EXPL|PEX2(0x4200044)\n"
+                 "[10][22]     VAL_|TAG_|AREN(0x400802): 11 [13]~~~<!meta-light>~~~\n"
+                 "[11][25]     VAL_|SCLR|PLAI|PEX2(0x4008102): 97 [5]~~~green~~~\n"
+                 "[12][28]   EDOC|PEX2(0x4000048)\n"
+                 "[13][29] ESTR(0x88)\n"
+                 "src.len=103 arena.len=256\n"
+                 "",
+                 ""
+                 "[0][0] BSTR(0x84)\n"
+                 "[1][1] TAGH(0x2000): 5 [3]~~~!m!~~~\n"
+                 "[2][4] TAGP|PEX2(0x4004000): 9 [4]~~~!my-~~~\n"
+                 "[3][7] BDOC|EXPL|PEX2(0x4200044)\n"
+                 "[4][8] VAL_|TAG_|AREN(0x400802): 0 [11]~~~<!my-light>~~~\n"
+                 "[5][11] VAL_|SCLR|PLAI|PEX2(0x4008102): 39 [11]~~~fluorescent~~~\n"
+                 "[6][14] EDOC|EXPL|PEX2(0x4200048)\n"
+                 "[7][15] TAGH(0x2000): 60 [3]~~~!m!~~~\n"
+                 "[8][18] TAGP|PEX2(0x4004000): 64 [6]~~~!meta-~~~\n"
+                 "[9][21] BDOC|EXPL|PEX2(0x4200044)\n"
+                 "[10][22] VAL_|TAG_|AREN(0x400802): 11 [13]~~~<!meta-light>~~~\n"
+                 "[11][25] VAL_|SCLR|PLAI|PEX2(0x4008102): 97 [5]~~~green~~~\n"
+                 "[12][28] EDOC|PEX2(0x4000048)\n"
+                 "[13][29] ESTR(0x88)\n"
+                 "src.len=103 arena.len=256\n"
+                 "",
+                 ""
+                 "/*[0][0]*/ BSTR,\n"
+                 "/*[1][1]*/   TAGH, 5,3,/*!m!*/\n"
+                 "/*[2][4]*/   TAGP|PEX2, 9,4,/*!my-*/\n"
+                 "/*[3][7]*/   BDOC|EXPL|PEX2,\n"
+                 "/*[4][8]*/     VAL_|TAG_|AREN, 0,11,/*<!my-light>*/\n"
+                 "/*[5][11]*/     VAL_|SCLR|PLAI|PEX2, 39,11,/*fluorescent*/\n"
+                 "/*[6][14]*/   EDOC|EXPL|PEX2,\n"
+                 "/*[7][15]*/   TAGH, 60,3,/*!m!*/\n"
+                 "/*[8][18]*/   TAGP|PEX2, 64,6,/*!meta-*/\n"
+                 "/*[9][21]*/   BDOC|EXPL|PEX2,\n"
+                 "/*[10][22]*/     VAL_|TAG_|AREN, 11,13,/*<!meta-light>*/\n"
+                 "/*[11][25]*/     VAL_|SCLR|PLAI|PEX2, 97,5,/*green*/\n"
+                 "/*[12][28]*/   EDOC|PEX2,\n"
+                 "/*[13][29]*/ ESTR,\n"
+                 "",
+                 ""
+                 "/*[0][0]*/ BSTR,\n"
+                 "/*[1][1]*/ TAGH, 5,3,/*!m!*/\n"
+                 "/*[2][4]*/ TAGP|PEX2, 9,4,/*!my-*/\n"
+                 "/*[3][7]*/ BDOC|EXPL|PEX2,\n"
+                 "/*[4][8]*/ VAL_|TAG_|AREN, 0,11,/*<!my-light>*/\n"
+                 "/*[5][11]*/ VAL_|SCLR|PLAI|PEX2, 39,11,/*fluorescent*/\n"
+                 "/*[6][14]*/ EDOC|EXPL|PEX2,\n"
+                 "/*[7][15]*/ TAGH, 60,3,/*!m!*/\n"
+                 "/*[8][18]*/ TAGP|PEX2, 64,6,/*!meta-*/\n"
+                 "/*[9][21]*/ BDOC|EXPL|PEX2,\n"
+                 "/*[10][22]*/ VAL_|TAG_|AREN, 11,13,/*<!meta-light>*/\n"
+                 "/*[11][25]*/ VAL_|SCLR|PLAI|PEX2, 97,5,/*green*/\n"
+                 "/*[12][28]*/ EDOC|PEX2,\n"
+                 "/*[13][29]*/ ESTR,\n"
+                 ""));
+}
+
+
+//-----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
+
+TEST(ints, find_matching_open_close_next_entry)
+{
+    #define CHECK_MATCHING_OPEN_CLOSE(open, close) \
+        do {                                                            \
+            ASSERT_GE(open, 0);                                         \
+            ASSERT_LT(open, ints.evts.len);                             \
+            EXPECT_EQ(open, ievt::detail::find_matching_open_(ints.evts.ptr, close)); \
+            ASSERT_GE(close, 0);                                        \
+            ASSERT_LT(close, ints.evts.len);                            \
+            EXPECT_EQ(close, ievt::detail::find_matching_close_(ints.evts.ptr, ints.evts.len, open)); \
+        } while(0)
+    ievt::TestBuffers ints;
+    std::string src = "[{a: b}: [c, d]]: {{e: f}: [g: h]}";
+    parse_ints(to_substr(src), &ints);
+    CHECK_MATCHING_OPEN_CLOSE(0, 45);
+    CHECK_MATCHING_OPEN_CLOSE(1, 44);
+    CHECK_MATCHING_OPEN_CLOSE(2, 43);
+    CHECK_MATCHING_OPEN_CLOSE(3, 22);
+    CHECK_MATCHING_OPEN_CLOSE(4, 21);
+    CHECK_MATCHING_OPEN_CLOSE(5, 12);
+    CHECK_MATCHING_OPEN_CLOSE(13, 20);
+    CHECK_MATCHING_OPEN_CLOSE(23, 42);
+    CHECK_MATCHING_OPEN_CLOSE(24, 31);
+    CHECK_MATCHING_OPEN_CLOSE(32, 41);
+    CHECK_MATCHING_OPEN_CLOSE(33, 40);
+    if(testing::Test::HasFailure())
+        ints.print();
+    #undef CHECK_MATCHING_OPEN_CLOSE
+}
+
+
+//-----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
+
+TEST(ints, grow_evts)
+{
+    using Handler = ievt::EventHandlerInts<true>;
+    auto test_grow_evts = [&](ievt::evt_size cap, csubstr yaml, csubstr expected){
+        RYML_TRACE_FMT("cap={}", cap);
+        if(!expected.len && yaml.len)
+            expected = yaml;
+        std::string src(yaml.str, yaml.len);
+        Handler handler;
+        ParseEngine<Handler> parser(&handler);
+        handler.reset(to_substr(src));
+        ASSERT_EQ(handler.m_evt.cap, 0);
+        handler._grow_evts_exact(cap);
+        ASSERT_EQ(handler.m_evt.cap, cap);
+        parser.parse_in_place_ev("(testyaml)", to_substr(src));
+        ievt::evt_size finalcap = handler.m_evt.cap;
+        ASSERT_LE(handler.m_evt.len, handler.m_evt.cap);
+        bool ok = true;
+        if(handler.m_evt.len <= cap)
+        {
+            ok = false;
+            EXPECT_GT(handler.m_evt.cap, cap);
+        }
+        ievt::TestBuffers ints;
+        ints.get_buffers(handler, true);
+        ASSERT_EQ(ints.evts.cap, finalcap);
+        std::string actual = ints.emitrs_yaml<std::string>();
+        if(expected != actual)
+        {
+            RYML_TRACE_FMT("yaml=~~~{}~~~", yaml);
+            EXPECT_EQ(expected, actual);
+            ok = false;
+        }
+        if(!ok)
+            ints.print();
+    };
+    #define test_grow_evts_(...) { SCOPED_TRACE("call"); test_grow_evts(__VA_ARGS__); }
+    test_grow_evts_(1, "a\n", {});
+    test_grow_evts_(1, "[a]", {});
+    test_grow_evts_(2, "[a]", {});
+    test_grow_evts_(3, "[a,b]", {});
+    test_grow_evts_(3, "[a: b]", "[{a: b}]");
+    test_grow_evts_(6, "[a: b]", "[{a: b}]");
+    test_grow_evts_(7, "[a: b]", "[{a: b}]");
+    test_grow_evts_(3, "[[a,b]: {c: d}]", "[{? [a,b]: {c: d}}]");
+    test_grow_evts_(6, "[[a,b]: {c: d}]", "[{? [a,b]: {c: d}}]");
+    test_grow_evts_(11, "[[a,b]: {c: d}]", "[{? [a,b]: {c: d}}]");
+}
+
+
+TEST(ints, grow_arena)
+{
+    using Handler = ievt::EventHandlerInts<true>;
+    {
+        Handler handler;
+        ASSERT_EQ(handler.m_arena.len, 0);
+        ASSERT_EQ(handler.m_arena.str, nullptr);
+        ASSERT_EQ(handler.arena(), handler.m_arena);
+    }
+    {
+        Handler handler = {};
+        ASSERT_EQ(handler.m_arena.len, 0);
+        ASSERT_EQ(handler.m_arena.str, nullptr);
+        ASSERT_EQ(handler.arena(), handler.m_arena);
+    }
+    Handler handler;
+    ASSERT_EQ(handler.arena().len, 0);
+    std::string sofar;
+    #define grow_arena(s_)                              \
+        do                                              \
+        {                                               \
+            SCOPED_TRACE("grow_arena");                 \
+            csubstr s = to_csubstr(s_);                 \
+            size_t lenprev = handler.arena().len;       \
+            ASSERT_EQ(sofar, handler.arena());          \
+            substr ret = handler.alloc_arena(s.len);    \
+            ASSERT_EQ(ret.len, s.len);                  \
+            ASSERT_EQ(handler.arena().len, lenprev + s.len); \
+            sofar.append(s.str, s.len);                 \
+            if(s.len)                                   \
+                memcpy(ret.str, s.str, s.len);          \
+            ASSERT_EQ(sofar, handler.arena());          \
+       } while(0)
+    ASSERT_EQ(handler.m_arena.len, 0);
+    grow_arena("0123");
+    ASSERT_EQ(handler.m_arena.len, 256);
+    grow_arena("456789");
+    ASSERT_EQ(handler.m_arena.len, 256);
+    std::string growit;
+    growit.assign(256, '-');
+    ASSERT_EQ(growit.size(), 256);
+    grow_arena(growit);
+    ASSERT_GT(handler.m_arena.len, 256);
+    #undef grow_arena
+}
+
+
+//-----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 
 struct IntEventsCase
 {
@@ -42,15 +605,12 @@ struct IntEventsCase
     const int line;
     ParserOptions opts;
     csubstr yaml;
-    const std::vector<IntEventWithScalar> evt;
+    const std::vector<extra::ievt::IntEventWithScalar> evt;
 
     void testeq(csubstr parsed_source, csubstr arena, ievt::evt_bits const* actual, size_t actual_size) const
     {
         RYML_TRACE_FMT("defined in:\n{}:{}: (here)\n", file, line);
-        #ifdef RYML_DBG
-        events_ints_print(parsed_source, arena, actual, (extra::ievt::evt_bits)actual_size);
-        #endif
-        test_events_ints_invariants(parsed_source, arena, actual, (ievt::evt_bits)actual_size);
+        extra::ievt::test_events_ints_invariants(parsed_source, arena, actual, (ievt::evt_bits)actual_size);
         test_events_ints(evt.data(), evt.size(), actual, actual_size, yaml, parsed_source, arena);
     }
 };
@@ -98,12 +658,12 @@ const IntEventsCase test_cases[] = {
            e(BSTR),
            e(BDOC),
            e(VAL_|TAG_, 0, 19, "!yamlscript/v0/bare"),
-           e(VAL_|SCLR|PLAI|PSTR, 0, 0, ""),
-           e(EDOC|PSTR),
+           e(VAL_|SCLR|PLAI|PEX2, 0, 0, ""),
+           e(EDOC|PEX2),
            e(BDOC|EXPL),
            e(VAL_|TAG_, 24, 5, "!code"),
-           e(VAL_|SCLR|PLAI|PSTR, 30, 2, "42"),
-           e(EDOC|PSTR),
+           e(VAL_|SCLR|PLAI|PEX2, 30, 2, "42"),
+           e(EDOC|PEX2),
            e(ESTR),
        }),
     // case -------------------------------------------------
@@ -111,10 +671,10 @@ const IntEventsCase test_cases[] = {
        {
            e(BSTR),
            e(BDOC),
-           e(VAL_|BMAP|BLCK),
+           e(VAL_|BMAP),
            e(KEY_|SCLR|PLAI, 0, 1, "a"),
-           e(VAL_|SCLR|PLAI|PSTR, 3, 1, "1"),
-           e(EMAP|PSTR),
+           e(VAL_|SCLR|PLAI|PEX2, 3, 1, "1"),
+           e(EMAP|PEX2),
            e(EDOC),
            e(ESTR),
        }),
@@ -123,10 +683,10 @@ const IntEventsCase test_cases[] = {
        {
            e(BSTR),
            e(BDOC),
-           e(VAL_|BMAP|BLCK),
+           e(VAL_|BMAP),
            e(KEY_|SCLR|PLAI, 0, 3, "say"),
-           e(VAL_|SCLR|PLAI|PSTR, 5, 5, "2 + 2"),
-           e(EMAP|PSTR),
+           e(VAL_|SCLR|PLAI|PEX2, 5, 5, "2 + 2"),
+           e(EMAP|PEX2),
            e(EDOC),
            e(ESTR),
        }),
@@ -135,10 +695,10 @@ const IntEventsCase test_cases[] = {
        {
            e(BSTR),
            e(BDOC),
-           e(VAL_|BMAP|BLCK),
+           e(VAL_|BMAP),
            e(KEY_|SCLR|PLAI, 0, 4, "𝄞"),
-           e(VAL_|SCLR|PLAI|PSTR, 6, 3, "✅"),
-           e(EMAP|PSTR),
+           e(VAL_|SCLR|PLAI|PEX2, 6, 3, "✅"),
+           e(EMAP|PEX2),
            e(EDOC),
            e(ESTR),
        }),
@@ -147,11 +707,11 @@ const IntEventsCase test_cases[] = {
        {
            e(BSTR),
            e(BDOC),
-           e(VAL_|BSEQ|FLOW),
+           e(VAL_|BSEQ|FLOW|FSL_),
            e(VAL_|SCLR|PLAI, 1, 1, "a"),
-           e(VAL_|SCLR|PLAI|PSTR, 4, 1, "b"),
-           e(VAL_|SCLR|PLAI|PSTR, 7, 1, "c"),
-           e(ESEQ|PSTR),
+           e(VAL_|SCLR|PLAI|PEX2, 4, 1, "b"),
+           e(VAL_|SCLR|PLAI|PEX2, 7, 1, "c"),
+           e(ESEQ|PEX2),
            e(EDOC),
            e(ESTR),
        }),
@@ -160,11 +720,11 @@ const IntEventsCase test_cases[] = {
        {
            e(BSTR),
            e(BDOC),
-           e(VAL_|BSEQ|FLOW),
-           e(VAL_|BMAP|FLOW),
+           e(VAL_|BSEQ|FLOW|FSL_),
+           e(VAL_|BMAP|FLOW|FSL_),
            e(KEY_|SCLR|PLAI, 1, 1, "a"),
-           e(VAL_|SCLR|PLAI|PSTR, 4, 1, "b"),
-           e(EMAP|PSTR),
+           e(VAL_|SCLR|PLAI|PEX2, 4, 1, "b"),
+           e(EMAP|PEX2),
            e(ESEQ),
            e(EDOC),
            e(ESTR),
@@ -191,41 +751,41 @@ const IntEventsCase test_cases[] = {
            e(BSTR),
            e(BDOC|EXPL),
            e(VAL_|TAG_, 4, 14, "!yamlscript/v0"),
-           e(VAL_|BMAP|BLCK|PSTR),
+           e(VAL_|BMAP|PEX2),
            e(KEY_|SCLR|PLAI, 19, 3, "foo"),
-           e(VAL_|TAG_|PSTR, 24, 1, "!"),
-           e(VAL_|BSEQ|BLCK|PSTR),
-           e(VAL_|BMAP|FLOW),
+           e(VAL_|TAG_|PEX2, 24, 1, "!"),
+           e(VAL_|BSEQ|PEX2),
+           e(VAL_|BMAP|FLOW|FSL_),
            e(KEY_|SCLR|PLAI, 29, 1, "x"),
-           e(VAL_|SCLR|PLAI|PSTR, 32, 1, "y"),
-           e(EMAP|PSTR),
-           e(VAL_|BSEQ|FLOW),
+           e(VAL_|SCLR|PLAI|PEX2, 32, 1, "y"),
+           e(EMAP|PEX2),
+           e(VAL_|BSEQ|FLOW|FSL_),
            e(VAL_|SCLR|PLAI, 38, 1, "x"),
-           e(VAL_|SCLR|PLAI|PSTR, 41, 1, "y"),
-           e(ESEQ|PSTR),
+           e(VAL_|SCLR|PLAI|PEX2, 41, 1, "y"),
+           e(ESEQ|PEX2),
            e(VAL_|SCLR|PLAI, 46, 3, "foo"),
-           e(VAL_|SCLR|SQUO|PSTR, 53, 3, "foo"),
-           e(VAL_|SCLR|DQUO|PSTR, 61, 3, "foo"),
-           e(VAL_|SCLR|LITL|PSTR, 70, 4, "foo\n", needs_filter),
-           e(VAL_|SCLR|FOLD|PSTR, 80, 4, "foo\n", needs_filter),
-           e(VAL_|BSEQ|FLOW|PSTR),
+           e(VAL_|SCLR|SQUO|PEX2, 53, 3, "foo"),
+           e(VAL_|SCLR|DQUO|PEX2, 61, 3, "foo"),
+           e(VAL_|SCLR|LITL|PEX2, 70, 4, "foo\n", needs_filter),
+           e(VAL_|SCLR|FOLD|PEX2, 80, 4, "foo\n", needs_filter),
+           e(VAL_|BSEQ|FLOW|FSL_|PEX2),
            e(VAL_|SCLR|PLAI, 89, 1, "1"),
-           e(VAL_|SCLR|PLAI|PSTR, 92, 1, "2"),
-           e(VAL_|SCLR|PLAI|PSTR, 95, 4, "true"),
-           e(VAL_|SCLR|PLAI|PSTR, 101, 5, "false"),
-           e(VAL_|SCLR|PLAI|PSTR, 108, 4, "null"),
-           e(ESEQ|PSTR),
-           e(VAL_|TAG_, 126, 6, "!tag-1"),
-           e(VAL_|ANCH|PSTR, 117, 8, "anchor-1"),
-           e(VAL_|SCLR|PLAI|PSTR, 133, 6, "foobar"),
-           e(ESEQ|PSTR),
+           e(VAL_|SCLR|PLAI|PEX2, 92, 1, "2"),
+           e(VAL_|SCLR|PLAI|PEX2, 95, 4, "true"),
+           e(VAL_|SCLR|PLAI|PEX2, 101, 5, "false"),
+           e(VAL_|SCLR|PLAI|PEX2, 108, 4, "null"),
+           e(ESEQ|PEX2),
+           e(VAL_|ANCH, 117, 8, "anchor-1"),
+           e(VAL_|TAG_|PEX2, 126, 6, "!tag-1"),
+           e(VAL_|SCLR|PLAI|PEX2, 133, 6, "foobar"),
+           e(ESEQ|PEX2),
            e(EMAP),
            e(EDOC),
            e(BDOC|EXPL),
-           e(VAL_|BMAP|BLCK),
+           e(VAL_|BMAP),
            e(KEY_|SCLR|PLAI, 144, 7, "another"),
-           e(VAL_|SCLR|PLAI|PSTR, 153, 3, "doc"),
-           e(EMAP|PSTR),
+           e(VAL_|SCLR|PLAI|PEX2, 153, 3, "doc"),
+           e(EMAP|PEX2),
            e(EDOC),
            e(ESTR),
        }),
@@ -248,18 +808,18 @@ const IntEventsCase test_cases[] = {
        {
            e(BSTR),
            e(BDOC),
-           e(VAL_|BMAP|BLCK),
+           e(VAL_|BMAP),
            e(KEY_|SCLR|PLAI, 0, 5, "plain"),
-           e(VAL_|SCLR|PLAI|PSTR, 7, 10, "well a b c"),
-           e(KEY_|SCLR|PLAI|PSTR, 24, 4, "squo"),
-           e(VAL_|SCLR|SQUO|PSTR, 31, 12, "single'quote", needs_filter),
-           e(KEY_|SCLR|PLAI|PSTR, 46, 4, "dquo"),
-           e(VAL_|SCLR|DQUO|PSTR, 53, 4, "x\t\ny", needs_filter),
-           e(KEY_|SCLR|PLAI|PSTR, 61, 3, "lit"),
-           e(VAL_|SCLR|LITL|PSTR, 68, 6, "X\nY\nZ\n", needs_filter),
-           e(KEY_|SCLR|PLAI|PSTR, 89, 4, "fold"),
-           e(VAL_|SCLR|FOLD|PSTR, 97, 6, "U V W\n", needs_filter),
-           e(EMAP|PSTR),
+           e(VAL_|SCLR|PLAI|PEX2, 7, 10, "well a b c"),
+           e(KEY_|SCLR|PLAI|PEX2, 24, 4, "squo"),
+           e(VAL_|SCLR|SQUO|PEX2, 31, 12, "single'quote", needs_filter),
+           e(KEY_|SCLR|PLAI|PEX2, 46, 4, "dquo"),
+           e(VAL_|SCLR|DQUO|PEX2, 53, 4, "x\t\ny", needs_filter),
+           e(KEY_|SCLR|PLAI|PEX2, 61, 3, "lit"),
+           e(VAL_|SCLR|LITL|PEX2, 68, 6, "X\nY\nZ\n", needs_filter),
+           e(KEY_|SCLR|PLAI|PEX2, 89, 4, "fold"),
+           e(VAL_|SCLR|FOLD|PEX2, 97, 6, "U V W\n", needs_filter),
+           e(EMAP|PEX2),
            e(EDOC),
            e(ESTR),
        }),
@@ -268,9 +828,9 @@ const IntEventsCase test_cases[] = {
        {
            e(BSTR),
            e(BDOC),
-           e(VAL_|BSEQ|BLCK),
+           e(VAL_|BSEQ),
            e(VAL_|TAG_, 2, 5, "!!seq"),
-           e(VAL_|BSEQ|FLOW|PSTR),
+           e(VAL_|BSEQ|FLOW|FSL_|PEX2),
            e(ESEQ),
            e(ESEQ),
            e(EDOC),
@@ -289,14 +849,14 @@ const IntEventsCase test_cases[] = {
        {
            e(BSTR),
            e(BDOC),
-           e(VAL_|BMAP|BLCK),
+           e(VAL_|BMAP),
            e(KEY_|SCLR|PLAI, 0, 28, "defn run(prompt session=nil)"),
-           e(VAL_|BMAP|BLCK|PSTR),
+           e(VAL_|BMAP|PEX2),
            e(KEY_|SCLR|PLAI, 32, 12, "when session"),
-           e(VAL_|BMAP|BLCK|PSTR),
+           e(VAL_|BMAP|PEX2),
            e(KEY_|SCLR|PLAI, 50, 28, "write session _ :append true"),
-           e(VAL_|SCLR|LITL|PSTR, 83, 54, "Q: $(orig-prompt:trim)\nA ($api-model):\n$(answer:trim)\n", needs_filter),
-           e(EMAP|PSTR),
+           e(VAL_|SCLR|LITL|PEX2, 83, 54, "Q: $(orig-prompt:trim)\nA ($api-model):\n$(answer:trim)\n", needs_filter),
+           e(EMAP|PEX2),
            e(EMAP),
            e(EMAP),
            e(EDOC),
@@ -333,37 +893,37 @@ const IntEventsCase test_cases[] = {
        {
            e(BSTR),
            e(BDOC),
-           e(VAL_|BMAP|BLCK),
+           e(VAL_|BMAP),
            e(KEY_|SCLR|PLAI, 21, 28, "defn run(prompt session=nil)"),
-           e(VAL_|BMAP|BLCK|PSTR),
+           e(VAL_|BMAP|PEX2),
            e(KEY_|SCLR|PLAI, 53, 14, "session-text ="),
-           e(VAL_|BMAP|BLCK|PSTR),
+           e(VAL_|BMAP|PEX2),
            e(KEY_|SCLR|PLAI, 73, 28, "when session && session:fs-e"),
-           e(VAL_|SCLR|PLAI|PSTR, 0, 0, ""), // note empty scalar pointing at the front
-           e(EMAP|PSTR),
+           e(VAL_|SCLR|PLAI|PEX2, 0, 0, ""), // note empty scalar pointing at the front
+           e(EMAP|PEX2),
            e(KEY_|SCLR|PLAI, 106, 8, "answer ="),
-           e(VAL_|BMAP|BLCK|PSTR),
+           e(VAL_|BMAP|PEX2),
            e(KEY_|SCLR|PLAI, 120, 4, "cond"),
-           e(VAL_|BMAP|BLCK|PSTR),
+           e(VAL_|BMAP|PEX2),
            e(KEY_|SCLR|PLAI, 132, 22, "api-model =~ /^dall-e/"),
-           e(VAL_|SCLR|PLAI|PSTR, 164, 31, "openai-image(prompt).data.0.url"),
-           e(KEY_|SCLR|PLAI|PSTR, 202, 31, "api-model.in?(anthropic-models)"),
-           e(VAL_|SCLR|PLAI|PSTR, 243, 42, "anthropic(prompt):anthropic-message:format"),
-           e(KEY_|SCLR|PLAI|PSTR, 292, 26, "api-model.in?(groq-models)"),
-           e(VAL_|SCLR|PLAI|PSTR, 328, 45, "groq(prompt).choices.0.message.content:format"),
-           e(KEY_|SCLR|PLAI|PSTR, 380, 28, "api-model.in?(openai-models)"),
-           e(VAL_|SCLR|PLAI|PSTR, 418, 52, "openai-chat(prompt).choices.0.message.content:format"),
-           e(KEY_|SCLR|PLAI|PSTR, 477, 4, "else"),
-           e(VAL_|SCLR|PLAI|PSTR, 483, 5, "die()"),
-           e(EMAP|PSTR),
+           e(VAL_|SCLR|PLAI|PEX2, 164, 31, "openai-image(prompt).data.0.url"),
+           e(KEY_|SCLR|PLAI|PEX2, 202, 31, "api-model.in?(anthropic-models)"),
+           e(VAL_|SCLR|PLAI|PEX2, 243, 42, "anthropic(prompt):anthropic-message:format"),
+           e(KEY_|SCLR|PLAI|PEX2, 292, 26, "api-model.in?(groq-models)"),
+           e(VAL_|SCLR|PLAI|PEX2, 328, 45, "groq(prompt).choices.0.message.content:format"),
+           e(KEY_|SCLR|PLAI|PEX2, 380, 28, "api-model.in?(openai-models)"),
+           e(VAL_|SCLR|PLAI|PEX2, 418, 52, "openai-chat(prompt).choices.0.message.content:format"),
+           e(KEY_|SCLR|PLAI|PEX2, 477, 4, "else"),
+           e(VAL_|SCLR|PLAI|PEX2, 483, 5, "die()"),
+           e(EMAP|PEX2),
            e(EMAP),
            e(KEY_|SCLR|PLAI, 492, 3, "say"),
-           e(VAL_|SCLR|PLAI|PSTR, 497, 6, "answer"),
-           e(KEY_|SCLR|PLAI|PSTR, 507, 12, "when session"),
-           e(VAL_|BMAP|BLCK|PSTR),
+           e(VAL_|SCLR|PLAI|PEX2, 497, 6, "answer"),
+           e(KEY_|SCLR|PLAI|PEX2, 507, 12, "when session"),
+           e(VAL_|BMAP|PEX2),
            e(KEY_|SCLR|PLAI, 525, 28, "write session _ :append true"),
-           e(VAL_|SCLR|LITL|PSTR, 558, 55, "Q: $(orig-prompt:trim)\nA ($api-model):\n$(answer:trim)\n\n", needs_filter),
-           e(EMAP|PSTR),
+           e(VAL_|SCLR|LITL|PEX2, 558, 55, "Q: $(orig-prompt:trim)\nA ($api-model):\n$(answer:trim)\n\n", needs_filter),
+           e(EMAP|PEX2),
            e(EMAP),
            e(EMAP),
            e(EDOC),
@@ -380,10 +940,10 @@ const IntEventsCase test_cases[] = {
        {
            e(BSTR),
            e(BDOC|EXPL),
-           e(VAL_|BMAP|BLCK),
+           e(VAL_|BMAP),
            e(KEY_|SCLR|PLAI, 4, 5, "plain"),
-           e(VAL_|SCLR|PLAI|PSTR, 11, 5, "a b\nc"),
-           e(EMAP|PSTR),
+           e(VAL_|SCLR|PLAI|PEX2, 11, 5, "a b\nc"),
+           e(EMAP|PEX2),
            e(EDOC),
            e(ESTR),
        }),
@@ -393,15 +953,15 @@ const IntEventsCase test_cases[] = {
        {
            e(BSTR),
            e(BDOC),
-           e(VAL_|BMAP|BLCK),
-           e(KEY_|BMAP|FLOW),
+           e(VAL_|BMAP),
+           e(KEY_|BMAP|FLOW|FSL_),
            e(KEY_|SCLR|PLAI, 1, 3, "key"),
-           e(VAL_|SCLR|PLAI|PSTR, 6, 3, "map"),
-           e(EMAP|PSTR),
-           e(VAL_|BSEQ|FLOW),
+           e(VAL_|SCLR|PLAI|PEX2, 6, 3, "map"),
+           e(EMAP|PEX2),
+           e(VAL_|BSEQ|FLOW|FSL_),
            e(VAL_|SCLR|PLAI, 13, 3, "seq"),
-           e(VAL_|SCLR|PLAI|PSTR, 18, 3, "val"),
-           e(ESEQ|PSTR),
+           e(VAL_|SCLR|PLAI|PEX2, 18, 3, "val"),
+           e(ESEQ|PEX2),
            e(EMAP),
            e(EDOC),
            e(ESTR),
@@ -412,15 +972,15 @@ const IntEventsCase test_cases[] = {
        {
            e(BSTR),
            e(BDOC),
-           e(VAL_|BMAP|BLCK),
-           e(KEY_|BSEQ|FLOW),
+           e(VAL_|BMAP),
+           e(KEY_|BSEQ|FLOW|FSL_),
            e(VAL_|SCLR|PLAI, 1, 3, "key"),
-           e(VAL_|SCLR|PLAI|PSTR, 6, 3, "seq"),
-           e(ESEQ|PSTR),
-           e(VAL_|BMAP|FLOW),
+           e(VAL_|SCLR|PLAI|PEX2, 6, 3, "seq"),
+           e(ESEQ|PEX2),
+           e(VAL_|BMAP|FLOW|FSL_),
            e(KEY_|SCLR|PLAI, 13, 3, "map"),
-           e(VAL_|SCLR|PLAI|PSTR, 18, 3, "val"),
-           e(EMAP|PSTR),
+           e(VAL_|SCLR|PLAI|PEX2, 18, 3, "val"),
+           e(EMAP|PEX2),
            e(EMAP),
            e(EDOC),
            e(ESTR),
@@ -431,13 +991,13 @@ const IntEventsCase test_cases[] = {
        {
            e(BSTR),
            e(BDOC),
-           e(VAL_|BMAP|BLCK),
-           e(KEY_|BSEQ|FLOW),
+           e(VAL_|BMAP),
+           e(KEY_|BSEQ|FLOW|FSL_),
            e(VAL_|SCLR|PLAI, 1, 1, "b"),
-           e(VAL_|SCLR|PLAI|PSTR, 3, 1, "c"),
-           e(ESEQ|PSTR),
+           e(VAL_|SCLR|PLAI|PEX2, 3, 1, "c"),
+           e(ESEQ|PEX2),
            e(VAL_|SCLR|PLAI, 7, 1, "d"),
-           e(EMAP|PSTR),
+           e(EMAP|PEX2),
            e(EDOC),
            e(ESTR),
        }),
@@ -447,15 +1007,15 @@ const IntEventsCase test_cases[] = {
        {
            e(BSTR),
            e(BDOC),
-           e(VAL_|BMAP|BLCK),
-           e(KEY_|BSEQ|FLOW),
-           e(VAL_|BSEQ|FLOW),
+           e(VAL_|BMAP),
+           e(KEY_|BSEQ|FLOW|FSL_),
+           e(VAL_|BSEQ|FLOW|FSL_),
            e(VAL_|SCLR|PLAI, 2, 1, "b"),
-           e(VAL_|SCLR|PLAI|PSTR, 4, 1, "c"),
-           e(ESEQ|PSTR),
+           e(VAL_|SCLR|PLAI|PEX2, 4, 1, "c"),
+           e(ESEQ|PEX2),
            e(ESEQ),
            e(VAL_|SCLR|PLAI, 9, 1, "d"),
-           e(EMAP|PSTR),
+           e(EMAP|PEX2),
            e(EDOC),
            e(ESTR),
        }),
@@ -465,24 +1025,24 @@ const IntEventsCase test_cases[] = {
        {
            e(BSTR),
            e(BDOC),
-           e(VAL_|BMAP|BLCK),
-           e(KEY_|BSEQ|FLOW),
+           e(VAL_|BMAP),
+           e(KEY_|BSEQ|FLOW|FSL_),
            e(VAL_|SCLR|PLAI, 2, 1, "a"),
-           e(VAL_|BSEQ|FLOW|PSTR),
-           e(VAL_|BMAP|FLOW),
-           e(KEY_|BSEQ|FLOW),
-           e(VAL_|BSEQ|FLOW),
+           e(VAL_|BSEQ|FLOW|FSL_|PEX2),
+           e(VAL_|BMAP|FLOW|FSL_),
+           e(KEY_|BSEQ|FLOW|FSL_),
+           e(VAL_|BSEQ|FLOW|FSL_),
            e(VAL_|SCLR|PLAI, 9, 1, "b"),
-           e(VAL_|SCLR|PLAI|PSTR, 11, 1, "c"),
-           e(ESEQ|PSTR),
+           e(VAL_|SCLR|PLAI|PEX2, 11, 1, "c"),
+           e(ESEQ|PEX2),
            e(ESEQ),
            e(VAL_|SCLR|PLAI, 16, 1, "d"),
-           e(EMAP|PSTR),
+           e(EMAP|PEX2),
            e(VAL_|SCLR|PLAI, 19, 1, "e"),
-           e(ESEQ|PSTR),
+           e(ESEQ|PEX2),
            e(ESEQ),
            e(VAL_|SCLR|PLAI, 24, 2, "23"),
-           e(EMAP|PSTR),
+           e(EMAP|PEX2),
            e(EDOC),
            e(ESTR),
        }),
@@ -493,10 +1053,10 @@ const IntEventsCase test_cases[] = {
        {
            e(BSTR),
            e(BDOC),
-           e(VAL_|BSEQ|FLOW),
+           e(VAL_|BSEQ|FLOW|FSL_),
            e(VAL_|SCLR|DQUO|AREN, 0, 18, dqesc_L6),
-           e(VAL_|SCLR|DQUO|AREN|PSTR, 18, 18, dqesc_P6),
-           e(ESEQ|PSTR),
+           e(VAL_|SCLR|DQUO|AREN|PEX2, 18, 18, dqesc_P6),
+           e(ESEQ|PEX2),
            e(EDOC),
            e(ESTR),
        }),
@@ -515,23 +1075,23 @@ const IntEventsCase test_cases[] = {
        {
            e(BSTR),
            e(YAML,                  6,  3, "1.2"),
-           e(BDOC|EXPL|PSTR),
-           e(VAL_|BSEQ|BLCK),
+           e(BDOC|EXPL|PEX2),
+           e(VAL_|BSEQ),
            e(VAL_|TAG_,            16,  6, "!light"),
-           e(VAL_|SCLR|PLAI|PSTR,  23, 11, "fluorescent"),
-           e(VAL_|TAG_|PSTR,       37,  2, "!m"),
-           e(VAL_|SCLR|PLAI|PSTR,  40,  9, "something"),
-           e(ESEQ|PSTR),
+           e(VAL_|SCLR|PLAI|PEX2,  23, 11, "fluorescent"),
+           e(VAL_|TAG_|PEX2,       37,  2, "!m"),
+           e(VAL_|SCLR|PLAI|PEX2,  40,  9, "something"),
+           e(ESEQ|PEX2),
            e(EDOC|EXPL),
            e(TAGH,                 59,  3, "!m!"),
-           e(TAGP|PSTR,            63, 15, "!extraordinary-"),
-           e(BDOC|EXPL|PSTR),
-           e(VAL_|BSEQ|BLCK),
+           e(TAGP|PEX2,            63, 15, "!extraordinary-"),
+           e(BDOC|EXPL|PEX2),
+           e(VAL_|BSEQ),
            e(VAL_|TAG_|AREN,        0, 22, "<!extraordinary-light>"),
-           e(VAL_|SCLR|PLAI|PSTR,  94,  5, "green"),
-           e(VAL_|TAG_|PSTR,      102,  5, "!!int"),
-           e(VAL_|SCLR|PLAI|PSTR, 108,  1, "2"),
-           e(ESEQ|PSTR),
+           e(VAL_|SCLR|PLAI|PEX2,  94,  5, "green"),
+           e(VAL_|TAG_|PEX2,      102,  5, "!!int"),
+           e(VAL_|SCLR|PLAI|PEX2, 108,  1, "2"),
+           e(ESEQ|PEX2),
            e(EDOC),
            e(ESTR),
        }),
@@ -540,10 +1100,10 @@ const IntEventsCase test_cases[] = {
        {
            e(BSTR),
            e(BDOC),
-           e(VAL_|BMAP|BLCK),
+           e(VAL_|BMAP),
            e(KEY_|SCLR|DQUO,       1, 5, "\"foo\""),
-           e(VAL_|SCLR|DQUO|PSTR, 12, 5, "\"bar\""),
-           e(EMAP|PSTR),
+           e(VAL_|SCLR|DQUO|PEX2, 12, 5, "\"bar\""),
+           e(EMAP|PEX2),
            e(EDOC),
            e(ESTR),
        }),
@@ -553,10 +1113,10 @@ const IntEventsCase test_cases[] = {
        {
            e(BSTR),
            e(BDOC),
-           e(VAL_|BMAP|BLCK),
-           e(KEY_|SCLR|DQUO|UNFILT,       1, 7, "\\\"foo\\\""),
-           e(VAL_|SCLR|DQUO|UNFILT|PSTR, 12, 7, "\\\"bar\\\""),
-           e(EMAP|PSTR),
+           e(VAL_|BMAP),
+           e(KEY_|SCLR|DQUO|UNFL,       1, 7, "\\\"foo\\\""),
+           e(VAL_|SCLR|DQUO|UNFL|PEX2, 12, 7, "\\\"bar\\\""),
+           e(EMAP|PEX2),
            e(EDOC),
            e(ESTR),
        }),
@@ -572,7 +1132,7 @@ const IntEventsCase test_cases[] = {
            //e(VAL_|SCLR|LITL|AREN, 0, 4, "abc\n"), // result has additional newline
            // we get this (shifted left by 1, in the source code)
            e(VAL_|SCLR|LITL, 1, 4, "abc\n"), // result has additional newline
-           e(EDOC|PSTR),
+           e(EDOC|PEX2),
            e(ESTR),
        }),
     // case -------------------------------------------------
@@ -587,7 +1147,7 @@ const IntEventsCase test_cases[] = {
            //e(VAL_|SCLR|FOLD|AREN, 0, 4, "abc\n"), // result has additional newline
            // we get this (shifted left by 1, in the source code)
            e(VAL_|SCLR|FOLD, 1, 4, "abc\n"), // result has additional newline
-           e(EDOC|PSTR),
+           e(EDOC|PEX2),
            e(ESTR),
        }),
 };
@@ -597,23 +1157,26 @@ const IntEventsCase test_cases[] = {
 //-----------------------------------------------------------------------------
 //-----------------------------------------------------------------------------
 
+constexpr bool dynamic_size = true;
+constexpr bool fixed_size = false;
 
 struct IntEventsTestHelper
 {
     IntEventsCase const& ec;
     size_t required_size_expected;
     size_t required_size_actual;
-    extra::EventHandlerInts handler;
-    ParseEngine<extra::EventHandlerInts> parser;
-    std::string src_copy;
+    extra::ievt::EventHandlerInts<fixed_size> handler;
+    ParseEngine<extra::ievt::EventHandlerInts<fixed_size>> parser;
+    txtbuf src_copy;
+    txtbuf arena;
     std::vector<evt_bits> actual;
-    std::string arena;
     IntEventsTestHelper(IntEventsCase const& ec_)
         : ec(ec_)
         , required_size_expected(num_ints(ec.evt.data(), ec.evt.size()))
         , handler()
         , parser(&handler, ec_.opts)
         , src_copy()
+        , arena()
         , actual()
     {
     }
@@ -622,9 +1185,18 @@ struct IntEventsTestHelper
         src_copy.assign(ec.yaml.str, ec.yaml.len);
         actual.resize(sz);
         arena.resize(arena_sz);
-        handler.reset(to_substr(src_copy), to_substr(arena), actual.data(), (int)actual.size());
+        handler.reset(src_copy, arena, actual.data(), (int)actual.size());
         parser.parse_in_place_ev("(testyaml)", to_substr(src_copy));
         required_size_actual = (size_t)handler.required_size_events();
+    }
+    void maybe_print() const
+    {
+        if(testing::Test::HasFailure())
+        {
+            size_t reqsz = (size_t)handler.required_size_arena();
+            size_t sz = actual.size() < reqsz ? actual.size() : reqsz;
+            extra::ievt::events_ints_print(src_copy, arena, actual.data(), (int)sz);
+        }
     }
 };
 
@@ -646,7 +1218,7 @@ struct IntEventsTest : public testing::TestWithParam<IntEventsCase>
     }
 };
 
-TEST_P(IntEventsTest, size_large_enough)
+TEST_P(IntEventsTest, fixed_size_large_enough)
 {
     IntEventsTestHelper h(GetParam());
     h.run_with_size(2u * h.required_size_expected, 2u * h.ec.yaml.len);
@@ -654,9 +1226,10 @@ TEST_P(IntEventsTest, size_large_enough)
     ASSERT_LT(h.handler.required_size_arena(), h.arena.size());
     ASSERT_TRUE(h.handler.fits_buffers());
     h.ec.testeq(to_csubstr(h.src_copy), to_csubstr(h.arena), h.actual.data(), h.required_size_actual);
+    h.maybe_print();
 }
 
-TEST_P(IntEventsTest, size_too_small)
+TEST_P(IntEventsTest, fixed_size_too_small)
 {
     IntEventsTestHelper h(GetParam());
     size_t small = h.required_size_expected / 2u;
@@ -673,7 +1246,7 @@ TEST_P(IntEventsTest, size_too_small)
     h.ec.testeq(to_csubstr(h.src_copy), to_csubstr(h.arena), h.actual.data(), h.required_size_actual);
 }
 
-TEST_P(IntEventsTest, size_null)
+TEST_P(IntEventsTest, fixed_size_null)
 {
     IntEventsTestHelper h(GetParam());
     h.run_with_size(0, 0);
@@ -681,6 +1254,30 @@ TEST_P(IntEventsTest, size_null)
     h.run_with_size(h.required_size_actual, h.handler.required_size_arena());
     ASSERT_TRUE(h.handler.fits_buffers());
     h.ec.testeq(to_csubstr(h.src_copy), to_csubstr(h.arena), h.actual.data(), h.required_size_actual);
+}
+
+
+void test_dynamic_size(IntEventsCase const& ec, bool transfer_ownership)
+{
+    extra::ievt::EventHandlerInts<dynamic_size> handler;
+    ParseEngine<extra::ievt::EventHandlerInts<dynamic_size>> parser(&handler, ec.opts);
+    std::vector<char> src(ec.yaml.begin(), ec.yaml.end());
+    handler.reset(to_substr(src));
+    parser.parse_in_place_ev("(testyaml)", to_substr(src));
+    extra::ievt::TestBuffers buf;
+    buf.get_buffers(handler, transfer_ownership);
+    EXPECT_EQ(buf.owned, transfer_ownership);
+    ec.testeq(to_csubstr(src), buf.arena, buf.evts.ptr, (size_t)buf.evts.len);
+}
+
+TEST_P(IntEventsTest, dynamic_size_notransfer)
+{
+    test_dynamic_size(GetParam(), false);
+}
+
+TEST_P(IntEventsTest, dynamic_size_transfer)
+{
+    test_dynamic_size(GetParam(), true);
 }
 
 INSTANTIATE_TEST_SUITE_P(IntEvents, IntEventsTest, testing::ValuesIn(test_cases), &IntEventsTest::name2str);
@@ -707,4 +1304,4 @@ Case const* get_case(csubstr)
 } // namespace yml
 } // namespace c4
 
-// NOLINTEND(hicpp-signed-bitwise)
+// NOLINTEND(*-signed-bitwise)

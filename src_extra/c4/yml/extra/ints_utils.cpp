@@ -11,11 +11,18 @@
 #ifndef C4_YML_EXTRA_INTS_UTILS_HPP_
 #include "c4/yml/extra/ints_utils.hpp"
 #endif
+#ifndef C4_YML_EXTRA_INTS_FORMAT_HPP_
+#include "c4/yml/extra/ints_format.hpp"
+#endif
+#ifndef C4_YML_WRITER_FILE_HPP_
+#include "c4/yml/writer_file.hpp"
+#endif
 
 
-C4_SUPPRESS_WARNING_GCC_WITH_PUSH("-Wold-style-cast")
-C4_SUPPRESS_WARNING_CLANG_WITH_PUSH("-Wold-style-cast")
-// NOLINTBEGIN(hicpp-signed-bitwise,*avoid-c-style-cast)
+C4_SUPPRESS_WARNING_PUSH
+C4_SUPPRESS_WARNING_GCC("-Wold-style-cast")
+C4_SUPPRESS_WARNING_CLANG("-Wold-style-cast")
+// NOLINTBEGIN(*-signed-bitwise,*avoid-c-style-cast)
 
 
 namespace c4 {
@@ -24,14 +31,20 @@ namespace extra {
 namespace ievt {
 
 namespace {
-struct FlagSym { const char *str; EventBits flags; };
+struct FlagSym { const char *str; evt_bits flags; };
 const FlagSym flag_syms_[] = {
     {"KEY_", KEY_},
     {"VAL_", VAL_},
+    {"BDOC|EXPL", BDOC|EXPL},
+    {"EDOC|EXPL", EDOC|EXPL},
+    {"BSEQ|FLOW", BSEQ|FLOW},
+    {"BMAP|FLOW", BMAP|FLOW},
+    {"BSEQ|BLCK", BSEQ},
+    {"BMAP|BLCK", BMAP},
+    {"BDOC", BDOC},
+    {"EDOC", EDOC},
     {"SCLR", SCLR},
-    {"BSEQ", BSEQ},
     {"ESEQ", ESEQ},
-    {"BMAP", BMAP},
     {"EMAP", EMAP},
     {"ALIA", ALIA},
     {"ANCH", ANCH},
@@ -42,27 +55,31 @@ const FlagSym flag_syms_[] = {
     {"LITL", LITL},
     {"FOLD", FOLD},
     {"FLOW", FLOW},
-    {"BLCK", BLCK},
-    {"BDOC", BDOC},
-    {"EDOC", EDOC},
     {"BSTR", BSTR},
     {"ESTR", ESTR},
-    {"EXPL", EXPL},
     {"AREN", AREN},
-    {"PSTR", PSTR},
-    {"UNFILT", UNFILT},
     {"YAML", YAML},
     {"TAGH", TAGH},
     {"TAGP", TAGP},
+    {"FSL_", FSL_},
+    {"FML1", FML1},
+    {"FMLN", FMLN},
+    {"FSPC", FSPC},
+    {"RREF", RREF},
+    {"RREF", RREF},
+    {"PEX2", PEX2},
+    {"JUMP", JUMP},
+    {"QWRD", QWRD},
+    {"UNFL", UNFL},
 };
 } // namespace
 
-size_t to_str(substr buf, ievt::evt_bits flags) noexcept
+size_t to_str(substr buf, evt_bits flags) noexcept
 {
-    detail::SubstrWriter_ writer(buf);
+    yml::detail::SubstrWriter_ writer(buf);
     for(const FlagSym sym : flag_syms_)
     {
-        if(flags & sym.flags)
+        if((flags & sym.flags) == sym.flags)
         {
             if(writer.pos)
                 writer.append('|');
@@ -71,13 +88,13 @@ size_t to_str(substr buf, ievt::evt_bits flags) noexcept
         }
     }
     if(!writer.pos)
-        writer.append("NONE");
-    if(buf.len > writer.pos)
+        writer.append('0');
+    if(writer.pos < buf.len)
         buf[writer.pos] = '\0';
     return writer.pos;
 }
 
-csubstr to_str_sub(substr buf, ievt::evt_bits flags)
+csubstr to_str_sub(substr buf, evt_bits flags)
 {
     size_t reqsize = ievt::to_str(buf, flags);
     RYML_CHECK_BASIC_(reqsize > 0u);
@@ -85,56 +102,16 @@ csubstr to_str_sub(substr buf, ievt::evt_bits flags)
     return buf.first(reqsize);
 }
 
+void events_ints_print(csubstr parsed_yaml, csubstr arena, evt_bits const* evts, evt_size evts_sz, bool indent, FILE *file)
+{
+    WriterFile writer(file);
+    format_ints(writer, parsed_yaml, arena, evts, evts_sz, indent);
+}
 
 } // namespace ievt
 } // namespace extra
 } // namespace yml
 } // namespace c4
 
-
-//-----------------------------------------------------------------------------
-//-----------------------------------------------------------------------------
-//-----------------------------------------------------------------------------
-
-namespace c4 {
-namespace yml {
-namespace extra {
-
-void events_ints_print(csubstr parsed_yaml, csubstr arena, ievt::evt_bits const* evts, ievt::evt_bits evts_sz)
-{
-    char buf[200];
-    for(ievt::evt_bits evtpos = 0, evtnumber = 0;
-        evtpos < evts_sz;
-        ++evtnumber,
-            evtpos += ((evts[evtpos] & ievt::WSTR) ? 3 : 1))
-    {
-        ievt::evt_bits evt = evts[evtpos];
-        csubstr flags = ievt::to_str_sub(buf, evt);
-        printf("[%d][%d] %.*s(0x%x)", evtnumber, evtpos, (int)flags.len, flags.str, evt);
-        if (evt & ievt::WSTR)
-        {
-            bool in_arena = evt & ievt::AREN;
-            csubstr region = !in_arena ? parsed_yaml : arena;
-            bool safe = (evts[evtpos + 1] >= 0)
-                && (evts[evtpos + 2] >= 0)
-                && (evts[evtpos + 1] <= (ievt::evt_bits)region.len) // NOLINT
-                && (evts[evtpos + 2] <= ((ievt::evt_bits)region.len - evts[evtpos + 1]));
-            const char *str = safe ? (region.str + evts[evtpos + 1]) : "ERR!!!";
-            ievt::evt_bits len = safe ? evts[evtpos + 2] : 6;
-            printf(": %d [%d]~~~%.*s~~~", evts[evtpos+1], evts[evtpos+2], len, str);
-            if(in_arena)
-                printf(" (arenasz=%zu)", arena.len);
-            else
-                printf(" (srcsz=%zu)", parsed_yaml.len);
-        }
-        printf("\n");
-    }
-}
-
-} // namespace extra
-} // namespace yml
-} // namespace c4
-
-// NOLINTEND(hicpp-signed-bitwise,*avoid-c-style-cast)
-C4_SUPPRESS_WARNING_CLANG_POP
-C4_SUPPRESS_WARNING_GCC_POP
+// NOLINTEND(*-signed-bitwise,*avoid-c-style-cast)
+C4_SUPPRESS_WARNING_POP
